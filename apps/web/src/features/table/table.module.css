@@ -1,0 +1,48 @@
+.table {
+  font-size: var(--mantine-font-size-sm);
+}
+
+.sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+}
+
+.row {
+  cursor: pointer;
+}
+
+.row[data-highlight] {
+  box-shadow: inset 3px 0 0 var(--mantine-color-red-5);
+}
+
+.cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.edit {
+  opacity: 0;
+  color: var(--mantine-color-dimmed);
+  padding: 2px;
+  border-radius: var(--mantine-radius-sm);
+}
+
+.row:hover .edit,
+.edit:focus-visible {
+  opacity: 1;
+}
+
+.edit:hover {
+  color: var(--mantine-color-indigo-6);
+  background: var(--mantine-color-default-hover);
+}
+
+@media (hover: none) {
+  /* На сенсорных экранах наведения нет — карандаш виден всегда. */
+  .edit {
+    opacity: 0.6;
+  }
+}

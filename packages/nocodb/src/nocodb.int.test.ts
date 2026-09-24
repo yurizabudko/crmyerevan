@@ -98,6 +98,9 @@ describe('records', () => {
       await listings.count(w.or(w.and(w.eq('Id', id), either('price')), either('rooms'))),
     ).toBe(1);
 
+    const beyond = await listings.list({ where: w.eq('Id', id), limit: 10, offset: 10 });
+    expect(beyond).toMatchObject({ list: [], pageInfo: { totalRows: 1, isLastPage: true } });
+
     await listings.delete([id]);
     expect(await listings.get(id)).toBeNull();
   });

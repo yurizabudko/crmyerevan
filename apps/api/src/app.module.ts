@@ -8,6 +8,7 @@ import { InfraModule } from './infra/infra.module.js';
 import { ListingsModule } from './listings/listings.module.js';
 import { PrefsController } from './prefs/prefs.controller.js';
 import { StorageModule } from './storage/storage.module.js';
+import { TableModule } from './table/table.module.js';
 import { UsersModule } from './users/users.module.js';
 
 @Module({
@@ -19,6 +20,7 @@ import { UsersModule } from './users/users.module.js';
     UsersModule,
     ListingsModule,
     ClientsModule,
+    TableModule,
   ],
   controllers: [HealthController, DictionariesController, PrefsController],
 })

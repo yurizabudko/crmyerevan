@@ -1,3 +1,4 @@
+import { NocoDbError } from './errors.js';
 import { type Http } from './http.js';
 import type { Condition } from './where.js';
 
@@ -36,14 +37,36 @@ export class TableRecords<T extends object> {
     readonly tableId: string,
   ) {}
 
-  list(params: ListParams = {}): Promise<Page<WithId<T>>> {
-    return this.http.request('GET', `/api/v2/tables/${this.tableId}/records`, undefined, {
-      where: params.where,
-      sort: params.sort?.join(','),
-      fields: params.fields?.join(','),
-      limit: params.limit,
-      offset: params.offset,
-    });
+  async list(params: ListParams = {}): Promise<Page<WithId<T>>> {
+    try {
+      return await this.http.request('GET', `/api/v2/tables/${this.tableId}/records`, undefined, {
+        where: params.where,
+        sort: params.sort?.join(','),
+        fields: params.fields?.join(','),
+        limit: params.limit,
+        offset: params.offset,
+      });
+    } catch (error) {
+      // NocoDB отвечает 422 на смещение за концом выборки — для нас это пустая страница.
+      if (
+        error instanceof NocoDbError &&
+        (error.body as { error?: string } | undefined)?.error === 'ERR_INVALID_OFFSET_VALUE'
+      ) {
+        const totalRows = await this.count(params.where);
+        const pageSize = params.limit ?? 25;
+        return {
+          list: [],
+          pageInfo: {
+            totalRows,
+            page: Math.floor((params.offset ?? 0) / pageSize) + 1,
+            pageSize,
+            isFirstPage: false,
+            isLastPage: true,
+          },
+        };
+      }
+      throw error;
+    }
   }
 
   /** Выгружает все подходящие записи постранично. */

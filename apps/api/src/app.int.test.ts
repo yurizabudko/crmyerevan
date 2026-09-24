@@ -936,6 +936,121 @@ describe('CRM API', () => {
     });
   });
 
+  describe('table', () => {
+    type Agent = ReturnType<typeof request.agent>;
+    let tp: Agent;
+    let tag: string;
+
+    it('filters, searches, sorts and pages listings', async () => {
+      tag = `T${Date.now().toString().slice(-6)}`;
+      await owner
+        .post('/api/users')
+        .send({
+          login: 'tprt',
+          displayName: 'tprt',
+          role: 'partner',
+          temporaryPassword: 'Temp12345',
+        })
+        .expect(201);
+      tp = await signIn('tprt');
+      const mk = (agent: Agent, title: string, extra = {}) =>
+        agent
+          .post('/api/listings')
+          .send({ title: `${tag} ${title}`, ...extra })
+          .expect(201);
+      await mk(owner, 'дешёвая', {
+        price: 50000,
+        phone: '091 11 22 33',
+        description: 'с ремонтом',
+      });
+      await mk(owner, 'средняя', { price: 90000 });
+      await mk(owner, 'дорогая', { price: 150000 });
+      await mk(tp, 'партнёрская', { price: 70000 });
+
+      const base = `/api/table/listings?q=${encodeURIComponent(tag)}`;
+      const all = await owner.get(base).expect(200);
+      expect(all.body.total).toBe(4);
+
+      const ranged = await owner
+        .get(`${base}&priceMin=60000&priceMax=100000&sort=price`)
+        .expect(200);
+      expect(ranged.body.rows.map((r: { price: number }) => r.price)).toEqual([70000, 90000]);
+
+      const desc = await owner.get(`${base}&sort=-price&pageSize=10&page=1`).expect(200);
+      expect(desc.body.rows[0].price).toBe(150000);
+      const paged = await owner.get(`${base}&sort=price&pageSize=10&page=2`).expect(200);
+      expect(paged.body).toMatchObject({ rows: [], total: 4, page: 2 });
+
+      const byPhone = await owner.get('/api/table/listings?q=091112233').expect(200);
+      expect(byPhone.body.rows.map((r: { title: string }) => r.title)).toEqual([`${tag} дешёвая`]);
+      const byDescription = await owner
+        .get(`/api/table/listings?q=${encodeURIComponent('с ремонтом')}`)
+        .expect(200);
+      expect(byDescription.body.total).toBeGreaterThanOrEqual(1);
+
+      await owner.get(`${base}&sort=partnerSource`).expect(400);
+      await owner.get(`${base}&pageSize=1000`).expect(400);
+
+      // Партнёр видит только свои записи — даже незакреплённые «новые» из пула нет (БТ-5.9).
+      const partnerView = await tp.get(base).expect(200);
+      expect(partnerView.body.rows.map((r: { title: string }) => r.title)).toEqual([
+        `${tag} партнёрская`,
+      ]);
+    });
+
+    it('filters clients by source, budget overlap and stage', async () => {
+      const sources = (await owner.get('/api/dictionaries').expect(200)).body.source;
+      const call = sources.find((s: { code: string }) => s.code === 'call').id;
+      const ads = sources.find((s: { code: string }) => s.code === 'ads').id;
+      const mk = (name: string, phone: string, extra: object) =>
+        owner
+          .post('/api/clients')
+          .send({ name: `${tag} ${name}`, phone, ...extra })
+          .expect(201);
+      await mk('эконом', '077 100 001', { sourceId: call, budgetMax: 60000 });
+      await mk('средний', '077 100 002', { sourceId: ads, budgetMin: 80000, budgetMax: 120000 });
+      await mk('премиум', '077 100 003', { sourceId: ads, budgetMin: 200000 });
+
+      const base = `/api/table/clients?q=${encodeURIComponent(tag)}`;
+      const bySource = await owner.get(`${base}&sourceId=${ads}&sort=name`).expect(200);
+      expect(bySource.body.rows.map((r: { name: string }) => r.name)).toEqual([
+        `${tag} премиум`,
+        `${tag} средний`,
+      ]);
+      const overlap = await owner.get(`${base}&budgetMin=100000&budgetMax=150000`).expect(200);
+      expect(overlap.body.rows.map((r: { name: string }) => r.name)).toEqual([`${tag} средний`]);
+      const stageNew = (await owner.get('/api/clients').expect(200)).body.stages[0].id;
+      expect((await owner.get(`${base}&stageIds=${stageNew}`).expect(200)).body.total).toBe(3);
+    });
+
+    it('exports the filtered selection as CSV for staff only', async () => {
+      const res = await owner
+        .get(
+          `/api/table/listings.csv?q=${encodeURIComponent(tag)}&sort=price&columns=title,price,stage,district`,
+        )
+        .buffer(true)
+        .parse((r, cb) => {
+          let data = '';
+          r.setEncoding('utf8');
+          r.on('data', (chunk: string) => (data += chunk));
+          r.on('end', () => cb(null, data));
+        })
+        .expect(200);
+      expect(res.headers['content-type']).toMatch(/text\/csv/);
+      const lines = (res.body as string).replace('\uFEFF', '').trim().split('\r\n');
+      expect(lines[0]).toBe('Название;Цена;Этап;Район');
+      expect(lines.slice(1)).toEqual([
+        `${tag} дешёвая;50000;Новое объявление;`,
+        `${tag} партнёрская;70000;Новое объявление;`,
+        `${tag} средняя;90000;Новое объявление;`,
+        `${tag} дорогая;150000;Новое объявление;`,
+      ]);
+      await tp.get('/api/table/listings.csv').expect(403);
+      const audit = await db.table('audit_events').findOne(w.eq('event_type', 'export.csv'));
+      expect(audit?.payload).toEqual({ rows: 4 });
+    });
+  });
+
   it('serves active dictionaries', async () => {
     const res = await owner.get('/api/dictionaries').expect(200);
     expect(res.body.district.map((d: { code: string }) => d.code)).toContain('kentron');

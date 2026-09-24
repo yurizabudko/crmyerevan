@@ -21,12 +21,8 @@ const always = () => true;
 export const SECTIONS: Section[] = [
   { path: '/listings', title: 'Воронка объявлений', icon: IconBuildingEstate, visible: always },
   { path: '/clients', title: 'Воронка клиентов', icon: IconAddressBook, visible: always },
-  {
-    path: '/table',
-    title: 'Таблица',
-    icon: IconTable,
-    visible: (u) => u.role !== 'partner',
-  },
+  // Партнёр видит в таблице только свои записи и не выгружает CSV (БТ-5.8, 5.9).
+  { path: '/table', title: 'Таблица', icon: IconTable, visible: always },
   { path: '/dashboard', title: 'Дашборд', icon: IconChartBar, visible: always },
   {
     path: '/admin/users',

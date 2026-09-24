@@ -11,10 +11,13 @@ export function usePref<T>(key: string, fallback: T) {
     queryFn: async () => (await api<{ value: T | null }>(`/me/prefs/${key}`)).value,
     staleTime: Infinity,
   });
-  const save = useMutation({
+  const persist = useMutation({
     mutationFn: (value: T) => api(`/me/prefs/${key}`, { method: 'PUT', body: { value } }),
-    // Применяем сразу, не дожидаясь сервера: порядок карточек не должен «прыгать».
-    onMutate: (value) => qc.setQueryData(prefKey(key), value),
   });
-  return { value: query.data ?? fallback, isLoading: query.isPending, save: save.mutate };
+  // Применяем синхронно, не дожидаясь сервера: порядок карточек и колонки не должны «прыгать».
+  const save = (value: T) => {
+    qc.setQueryData(prefKey(key), value);
+    persist.mutate(value);
+  };
+  return { value: query.data ?? fallback, isLoading: query.isPending, save };
 }
