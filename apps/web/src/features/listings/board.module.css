@@ -1,0 +1,29 @@
+.board {
+  min-height: 60vh;
+  scroll-snap-type: x mandatory;
+}
+
+.column {
+  flex: 0 0 280px;
+  background: var(--mantine-color-default-hover);
+  border-radius: var(--mantine-radius-md);
+  padding: var(--mantine-spacing-xs);
+  scroll-snap-align: start;
+}
+
+@media (max-width: $mantine-breakpoint-xs) {
+  /* На телефоне колонка почти во всю ширину, соседняя чуть видна — понятно, что есть скролл. */
+  .column {
+    flex-basis: calc(100vw - 64px);
+  }
+}
+
+.card {
+  cursor: pointer;
+  transition: box-shadow 120ms ease;
+}
+
+.card:hover,
+.card:focus-visible {
+  box-shadow: var(--mantine-shadow-sm);
+}

@@ -26,6 +26,8 @@ pnpm install
 pnpm infra:up        # Postgres, Redis, NocoDB
 pnpm build
 pnpm migrate         # при первом запуске выпустит API-токен — сохраните его в .env
+pnpm build           # после добавления токена
+pnpm --filter @crm/api create-owner <логин> "Имя"   # первый Владелец, печатает временный пароль
 pnpm --filter @crm/api dev
 pnpm --filter @crm/web dev   # http://localhost:5173
 ```
@@ -36,6 +38,11 @@ pnpm --filter @crm/web dev   # http://localhost:5173
 pnpm lint && pnpm typecheck && pnpm test
 pnpm test:integration   # нужен запущенный NocoDB (pnpm infra:up)
 ```
+
+## Автоимпорт объявлений
+
+Пока объявления добавляются вручную. Места, где подключается автоматический сбор,
+помечены в коде тегом `TODO(auto-import)` — подробности в [docs/PLAN.md](docs/PLAN.md#6-автоимпорт-объявлений-отложен).
 
 ## Схема данных
 

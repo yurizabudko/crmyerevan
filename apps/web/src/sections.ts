@@ -1,3 +1,4 @@
+import { can, type UserDto } from '@crm/shared';
 import {
   IconAddressBook,
   IconBuildingEstate,
@@ -11,13 +12,26 @@ export interface Section {
   path: string;
   title: string;
   icon: Icon;
+  visible: (user: UserDto) => boolean;
 }
 
-/** Разделы CRM (п. 1.2). Видимость по ролям добавится вместе с авторизацией. */
+const always = () => true;
+
+/** Разделы CRM (п. 1.2) и их видимость по ролям (2.2, 8.4). */
 export const SECTIONS: Section[] = [
-  { path: '/listings', title: 'Воронка объявлений', icon: IconBuildingEstate },
-  { path: '/clients', title: 'Воронка клиентов', icon: IconAddressBook },
-  { path: '/table', title: 'Таблица', icon: IconTable },
-  { path: '/dashboard', title: 'Дашборд', icon: IconChartBar },
-  { path: '/admin', title: 'Администрирование', icon: IconSettings },
+  { path: '/listings', title: 'Воронка объявлений', icon: IconBuildingEstate, visible: always },
+  { path: '/clients', title: 'Воронка клиентов', icon: IconAddressBook, visible: always },
+  {
+    path: '/table',
+    title: 'Таблица',
+    icon: IconTable,
+    visible: (u) => u.role !== 'partner',
+  },
+  { path: '/dashboard', title: 'Дашборд', icon: IconChartBar, visible: always },
+  {
+    path: '/admin/users',
+    title: 'Администрирование',
+    icon: IconSettings,
+    visible: (u) => can.manageUsers(u),
+  },
 ];

@@ -2,6 +2,7 @@ import { Controller, Get, HttpStatus, Inject, Res } from '@nestjs/common';
 import type { NocoDb } from '@crm/nocodb';
 import type { Response } from 'express';
 import type { Redis } from 'ioredis';
+import { Public } from '../auth/decorators.js';
 import { NOCODB, REDIS } from '../infra/infra.module.js';
 
 type CheckStatus = 'ok' | 'fail';
@@ -11,6 +12,8 @@ export interface HealthReport {
   checks: { nocodb: CheckStatus; redis: CheckStatus };
 }
 
+/** Доступен без входа: его опрашивают docker и балансировщик. */
+@Public()
 @Controller('health')
 export class HealthController {
   constructor(

@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import cookieParser from 'cookie-parser';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module.js';
 import { APP_CONFIG, type AppConfig } from './config.js';
@@ -9,6 +10,7 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   // За reverse proxy (Caddy): корректные IP клиентов для аудита входов.
   app.set('trust proxy', 1);
+  app.use(cookieParser());
   app.setGlobalPrefix('api');
   app.enableShutdownHooks();
 
