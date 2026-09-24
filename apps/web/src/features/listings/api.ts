@@ -10,7 +10,7 @@ import type {
 } from '@crm/shared';
 import { notifications } from '@mantine/notifications';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ApiError, api } from '../../api/client';
+import { ApiError, api, upload } from '../../api/client';
 
 export const listingKeys = {
   board: ['listings', 'board'] as const,
@@ -72,6 +72,26 @@ export const useAddComment = () =>
   useListingMutation(({ id, comment }: { id: number; comment: NewComment }) =>
     api<ListingDetailsDto>(`/listings/${id}/comments`, { method: 'POST', body: comment }),
   );
+
+export const useUploadPhotos = () =>
+  useListingMutation(({ id, files }: { id: number; files: File[] }) => {
+    const form = new FormData();
+    for (const file of files) form.append('photos', file);
+    return upload<ListingDetailsDto>(`/listings/${id}/photos`, form);
+  });
+
+export const useRemovePhoto = () =>
+  useListingMutation(({ id, photoId }: { id: number; photoId: number }) =>
+    api<ListingDetailsDto>(`/listings/${id}/photos/${photoId}`, { method: 'DELETE' }),
+  );
+
+export function useDeleteListing() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api<void>(`/listings/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: listingKeys.board }),
+  });
+}
 
 export function useDictionaries() {
   return useQuery({

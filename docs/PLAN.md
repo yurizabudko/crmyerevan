@@ -32,7 +32,7 @@ NocoDB — единственное хранилище бизнес-данных
    │       ▼                          ▼
    │   [Redis] сессии, блокировки, очереди BullMQ, кэш дашбордов
    ▼
-[NocoDB REST API] ──► [PostgreSQL]      [MinIO/S3] фото
+[NocoDB REST API] ──► [PostgreSQL]      [Диск/том files] фото
    ▲        ▲
    │        └── [Worker] биллинг, dunning, просрочка, саги, outbox уведомлений
    └── [Parser] list.am, отдельный контейнер (НФТ-7)
@@ -46,7 +46,7 @@ NocoDB — единственное хранилище бизнес-данных
 - **Фронтенд:** React, Vite, TanStack Query и Table, dnd-kit, Mantine, i18n (сначала ru).
 - **Парсер:** undici и cheerio. Если list.am отдаёт контент только через JS — Playwright. Обрезка фото — sharp.
 - **Бот:** grammY.
-- **Инфраструктура:** Docker Compose на VPS, Caddy (TLS), GitHub Actions, Sentry, uptime-мониторинг, ежедневный бэкап Postgres и MinIO.
+- **Инфраструктура:** Docker Compose на VPS, Caddy (TLS), GitHub Actions, Sentry, uptime-мониторинг, ежедневный бэкап Postgres и тома с фото. Фото хранятся на диске сервера через интерфейс `FileStorage` — при необходимости заменяется на S3 без правок бизнес-логики.
 
 ### Как обходим ограничения NocoDB
 

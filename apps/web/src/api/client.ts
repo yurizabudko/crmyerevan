@@ -30,3 +30,16 @@ export async function api<T>(
   if (!response.ok) throw new ApiError(response.status, (data ?? {}) as ApiErrorBody);
   return data as T;
 }
+
+/** Загрузка файлов (multipart). Content-Type с границей выставит браузер. */
+export async function upload<T>(path: string, form: FormData): Promise<T> {
+  const response = await fetch(`/api${path}`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    body: form,
+  });
+  const text = await response.text();
+  const data: unknown = text ? JSON.parse(text) : undefined;
+  if (!response.ok) throw new ApiError(response.status, (data ?? {}) as ApiErrorBody);
+  return data as T;
+}

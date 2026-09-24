@@ -49,8 +49,17 @@ export interface ListingDto {
   closeOutcome: string | null;
   commissionPercent: number | null;
   lastActivityAt: string | null;
+  coverPhotoId: number | null;
   createdAt: string;
   version: number;
+}
+
+export interface PhotoDto {
+  id: number;
+  url: string;
+  thumbUrl: string;
+  width: number | null;
+  height: number | null;
 }
 
 export type CommentKind = 'manual' | 'call' | 'system';
@@ -74,6 +83,7 @@ export interface ListingBoardDto {
 
 export interface ListingDetailsDto extends ListingDto {
   comments: CommentDto[];
+  photos: PhotoDto[];
 }
 
 export interface DictionaryItemDto {

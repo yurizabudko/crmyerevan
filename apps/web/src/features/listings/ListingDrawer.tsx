@@ -1,4 +1,10 @@
-import type { CommentDto, ListingDetailsDto, StageDto, UserDto } from '@crm/shared';
+import {
+  can,
+  type CommentDto,
+  type ListingDetailsDto,
+  type StageDto,
+  type UserDto,
+} from '@crm/shared';
 import {
   Alert,
   Anchor,
@@ -9,6 +15,7 @@ import {
   Group,
   Loader,
   Menu,
+  Modal,
   SegmentedControl,
   SimpleGrid,
   Stack,
@@ -18,17 +25,25 @@ import {
   Title,
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
-import { IconArrowRight, IconPencil, IconPhoneCall } from '@tabler/icons-react';
+import {
+  IconArrowRight,
+  IconDots,
+  IconPencil,
+  IconPhoneCall,
+  IconTrash,
+} from '@tabler/icons-react';
 import { useState, type ReactNode } from 'react';
 import { useMe } from '../../auth/useAuth';
 import { formatDateTime, formatPrice } from '../../lib/format';
 import {
   useAddComment,
+  useDeleteListing,
   useDictionaries,
   useListing,
   useListingBoard,
   useUserDirectory,
 } from './api';
+import { PhotoGallery } from './PhotoGallery';
 import { EditListingModal } from './EditListingModal';
 import type { PendingMove } from './StageChangeModal';
 
@@ -47,6 +62,8 @@ export function ListingDrawer({ listingId, onClose, onMove }: Props) {
   const listing = useListing(listingId);
   const board = useListingBoard();
   const [editing, setEditing] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const remove = useDeleteListing();
   const l = listing.data;
 
   return (
@@ -80,13 +97,65 @@ export function ListingDrawer({ listingId, onClose, onMove }: Props) {
             >
               Изменить
             </Button>
+            {can.deleteCards(me) && (
+              <Menu position="bottom-end" withinPortal>
+                <Menu.Target>
+                  <Button variant="default" px="xs" aria-label="Ещё">
+                    <IconDots size={16} />
+                  </Button>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  <Menu.Item
+                    color="red"
+                    leftSection={<IconTrash size={16} />}
+                    onClick={() => setConfirmDelete(true)}
+                  >
+                    Удалить карточку
+                  </Menu.Item>
+                </Menu.Dropdown>
+              </Menu>
+            )}
           </Group>
+
+          <PhotoGallery listing={l} me={me} />
 
           <Details listing={l} me={me} />
 
           <Divider label="Комментарии и история" labelPosition="left" />
           <CommentBox listingId={l.id} />
           <History comments={l.comments} />
+
+          <Modal
+            opened={confirmDelete}
+            onClose={() => setConfirmDelete(false)}
+            title="Удалить карточку?"
+          >
+            <Stack>
+              <Text size="sm">
+                «{l.title}» пропадёт из воронки и таблицы. История и фото сохранятся в журнале.
+              </Text>
+              {remove.error && <Alert color="red">{remove.error.message}</Alert>}
+              <Group justify="flex-end">
+                <Button variant="default" onClick={() => setConfirmDelete(false)}>
+                  Отмена
+                </Button>
+                <Button
+                  color="red"
+                  loading={remove.isPending}
+                  onClick={() =>
+                    remove.mutate(l.id, {
+                      onSuccess: () => {
+                        setConfirmDelete(false);
+                        onClose();
+                      },
+                    })
+                  }
+                >
+                  Удалить
+                </Button>
+              </Group>
+            </Stack>
+          </Modal>
 
           <EditListingModal
             listing={l}

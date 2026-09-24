@@ -22,9 +22,11 @@ RUN pnpm --filter @crm/api deploy --prod --legacy /out/api \
 
 # API (BFF)
 FROM node:22-alpine AS api
-ENV NODE_ENV=production
+ENV NODE_ENV=production FILES_DIR=/data/files
 WORKDIR /app
 COPY --from=build /out/api .
+# Каталог фото — точка монтирования тома, должен принадлежать пользователю node.
+RUN mkdir -p /data/files && chown -R node:node /data
 USER node
 EXPOSE 3000
 CMD ["node", "dist/main.js"]

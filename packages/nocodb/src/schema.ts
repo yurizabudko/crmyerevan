@@ -80,16 +80,24 @@ export const schema = {
     close_outcome: c.text(),
     commission_percent: c.decimal(),
     last_activity_at: c.datetime(),
+    /** Первое фото — для превью на доске (денормализовано, чтобы не грузить все фото). */
+    cover_photo_id: c.int(),
     deleted_at: c.datetime(),
+    deleted_by_id: c.int(),
     version: c.int(),
   },
 
   listing_photos: {
     listing_id: c.int(),
+    /** Ключ в файловом хранилище; превью лежит рядом с суффиксом `.thumb.jpg`. */
     storage_key: c.text(),
     url: c.text(),
+    /** Исходная ссылка на фото у источника (для автоимпорта). */
     original_url: c.text(),
     position: c.int(),
+    width: c.int(),
+    height: c.int(),
+    uploaded_by_id: c.int(),
   },
 
   clients: {

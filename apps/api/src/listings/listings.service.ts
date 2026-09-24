@@ -3,6 +3,7 @@ import { w, type Condition, type NocoDb } from '@crm/nocodb';
 import type { Actor, ListingBoardDto, ListingDetailsDto } from '@crm/shared';
 import { NOCODB } from '../infra/infra.module.js';
 import { CommentsService } from './comments.service.js';
+import { ListingPhotosService } from './listing-photos.service.js';
 import { toListingDto } from './listing.mapper.js';
 import { StagesService } from './stages.service.js';
 
@@ -15,6 +16,7 @@ export class ListingsService {
     @Inject(NOCODB) private readonly db: NocoDb,
     @Inject(StagesService) private readonly stages: StagesService,
     @Inject(CommentsService) private readonly comments: CommentsService,
+    @Inject(ListingPhotosService) private readonly photos: ListingPhotosService,
   ) {}
 
   /** Доска воронки. Сортировка по умолчанию — свежие изменения сверху (БТ-3.3.1). */
@@ -34,8 +36,11 @@ export class ListingsService {
       .table('listings')
       .findOne(w.and(w.eq('Id', id), await this.visibleTo(actor)));
     if (!row) throw new NotFoundException('Объявление не найдено');
-    const comments = await this.comments.list({ type: 'listing', id }, actor);
-    return { ...toListingDto(row), comments };
+    const [comments, photos] = await Promise.all([
+      this.comments.list({ type: 'listing', id }, actor),
+      this.photos.list(id),
+    ]);
+    return { ...toListingDto(row), comments, photos };
   }
 
   /**

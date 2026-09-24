@@ -55,7 +55,7 @@ export function AddListingModal({ opened, onClose, onOpenListing }: Props) {
         <Stack>
           <ListingFields form={form} />
           <Text size="xs" c="dimmed">
-            Загрузка фото появится вместе с хранилищем файлов.
+            Фото можно добавить в карточке сразу после создания.
           </Text>
           {create.error && (
             <Alert color="red">

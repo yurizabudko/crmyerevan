@@ -4,6 +4,10 @@ import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import cookieParser from 'cookie-parser';
 import { Redis } from 'ioredis';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import sharp from 'sharp';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from './app.module.js';
@@ -72,6 +76,7 @@ beforeAll(async () => {
     NOCODB_BASE_TITLE: baseTitle,
     REDIS_URL: redisUrl,
     SESSION_SECRET: 'test-secret-test-secret',
+    FILES_DIR: await mkdtemp(join(tmpdir(), 'crm-api-files-')),
   });
 
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -434,6 +439,99 @@ describe('CRM API', () => {
         authorName: 'emp',
       });
       await emp.post(`/api/listings/${card.id}/comments`).send({ body: '  ' }).expect(400);
+    });
+
+    it('uploads, serves and removes photos', async () => {
+      const png = await sharp({
+        create: { width: 2400, height: 1800, channels: 3, background: '#557799' },
+      })
+        .png()
+        .toBuffer();
+      const { body: card } = await owner
+        .post('/api/listings')
+        .send({ title: 'Воркфлоу: фото' })
+        .expect(201);
+
+      const uploaded = await owner
+        .post(`/api/listings/${card.id}/photos`)
+        .attach('photos', png, { filename: 'a.png', contentType: 'image/png' })
+        .attach('photos', png, { filename: 'b.png', contentType: 'image/png' })
+        .expect(201);
+      expect(uploaded.body.photos).toHaveLength(2);
+      expect(uploaded.body.photos[0]).toMatchObject({ width: 1600, height: 1200 });
+      expect(uploaded.body.coverPhotoId).toBe(uploaded.body.photos[0].id);
+
+      const [first, second] = uploaded.body.photos;
+      const full = await owner.get(first.url).buffer(true).expect(200);
+      expect(full.headers['content-type']).toBe('image/jpeg');
+      const thumb = await owner.get(first.thumbUrl).buffer(true).expect(200);
+      expect((await sharp(thumb.body).metadata()).width).toBe(480);
+
+      // Карточка в пуле видна партнёру — и фото тоже; менять их он не может.
+      await p1.get(first.thumbUrl).expect(200);
+      await p1
+        .post(`/api/listings/${card.id}/photos`)
+        .attach('photos', png, { filename: 'c.png', contentType: 'image/png' })
+        .expect(403);
+      await owner
+        .post(`/api/listings/${card.id}/photos`)
+        .attach('photos', Buffer.from('fake'), { filename: 'x.png', contentType: 'image/png' })
+        .expect(400);
+      await owner
+        .post(`/api/listings/${card.id}/photos`)
+        .attach('photos', Buffer.from('%PDF-1.4'), {
+          filename: 'x.pdf',
+          contentType: 'application/pdf',
+        })
+        .expect(400);
+
+      const afterDelete = await owner
+        .delete(`/api/listings/${card.id}/photos/${first.id}`)
+        .expect(200);
+      expect(afterDelete.body.photos.map((p: { id: number }) => p.id)).toEqual([second.id]);
+      expect(afterDelete.body.coverPhotoId).toBe(second.id);
+      await owner.get(first.url).expect(404);
+
+      // Свою карточку партнёр может снабдить фото.
+      const { body: own } = await p1
+        .post('/api/listings')
+        .send({ title: 'Воркфлоу: фото партнёра' })
+        .expect(201);
+      await p1
+        .post(`/api/listings/${own.id}/photos`)
+        .attach('photos', png, { filename: 'd.png', contentType: 'image/png' })
+        .expect(201);
+      // Фото чужой закреплённой карточки партнёру не отдаётся.
+      const ownPhoto = (await load(p1, own.id)).photos[0];
+      await p2.get(ownPhoto.url).expect(404);
+    });
+
+    it('soft-deletes listings for those with the right', async () => {
+      const { body: card } = await emp
+        .post('/api/listings')
+        .send({ title: 'Воркфлоу: удаление' })
+        .expect(201);
+      await emp.delete(`/api/listings/${card.id}`).expect(403);
+      await owner.delete(`/api/listings/${card.id}`).expect(204);
+      await owner.get(`/api/listings/${card.id}`).expect(404);
+      const board = await owner.get('/api/listings').expect(200);
+      expect(board.body.cards.map((c: { id: number }) => c.id)).not.toContain(card.id);
+      const row = await db.table('listings').get(card.id);
+      expect(row?.deleted_at).not.toBeNull();
+      const audit = await db
+        .table('audit_events')
+        .findOne(w.and(w.eq('event_type', 'listing.deleted'), w.eq('entity_id', card.id)));
+      expect(audit).not.toBeNull();
+    });
+
+    it('stores personal preferences per user', async () => {
+      await emp.get('/api/me/prefs/listings.board').expect(200, { value: null });
+      const value = { manual: { '1': [3, 1, 2] } };
+      await emp.put('/api/me/prefs/listings.board').send({ value }).expect(200);
+      await emp.get('/api/me/prefs/listings.board').expect(200, { value });
+      await owner.get('/api/me/prefs/listings.board').expect(200, { value: null });
+      await emp.put('/api/me/prefs/../../x').send({ value: 1 }).expect(404);
+      await emp.get('/api/me/prefs/Bad Key').expect(400);
     });
 
     it('serves the user directory to staff only', async () => {

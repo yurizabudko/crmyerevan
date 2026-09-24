@@ -30,6 +30,12 @@ export const can = {
   exportCsv: (a: Actor) => a.role !== 'partner',
   viewTeamDashboard: isOwner,
   confirmPayout: isOwner,
+  /**
+   * Фото объявления: сотрудники — всегда, партнёр — в карточках, которые создал сам
+   * (в списке полей БТ-2.3.1 фото нет, но без них ручной ввод партнёра неполон).
+   */
+  managePhotos: (a: Actor, card: { createdById: number | null }) =>
+    a.role !== 'partner' || card.createdById === a.id,
   /** Системные записи аудита в карточках не видны партнёру (БТ-3.4.2). */
   viewSystemComments: (a: Actor) => a.role !== 'partner',
 };

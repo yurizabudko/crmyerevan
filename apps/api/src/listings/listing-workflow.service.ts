@@ -10,6 +10,7 @@ import { w, type NocoDb, type Row } from '@crm/nocodb';
 import {
   LISTING_FIELD_LABELS,
   PARTNER_EDITABLE_LISTING_FIELDS,
+  can,
   checkListingTransition,
   normalizePhone,
   type Actor,
@@ -18,6 +19,7 @@ import {
   type NewComment,
 } from '@crm/shared';
 import type { Redis } from 'ioredis';
+import { AuditService } from '../audit/audit.service.js';
 import { withLock } from '../common/redis-lock.js';
 import { NOCODB, REDIS } from '../infra/infra.module.js';
 import { isListingVisible } from './access.js';
@@ -65,6 +67,7 @@ export class ListingWorkflowService {
     @Inject(REDIS) private readonly redis: Redis,
     @Inject(StagesService) private readonly stages: StagesService,
     @Inject(CommentsService) private readonly comments: CommentsService,
+    @Inject(AuditService) private readonly audit: AuditService,
   ) {}
 
   /** Перевод на другой этап с проверкой правил (БТ-3.1.1) и захватом карточки партнёром (В-5). */
@@ -196,6 +199,30 @@ export class ListingWorkflowService {
     await this.loadForActor(actor, id);
     await this.comments.add({ type: 'listing', id }, actor.id, input.kind, input.body);
     await this.db.table('listings').update(id, { last_activity_at: new Date().toISOString() });
+  }
+
+  /**
+   * Удаление карточки: мягкое (deleted_at), история и фото сохраняются для аудита.
+   * Право — у Владельца и сотрудников с «Удалением карточек» (В-2).
+   */
+  async remove(actor: Actor, id: number): Promise<void> {
+    if (!can.deleteCards(actor)) throw new ForbiddenException('Нет права на удаление карточек');
+    await withLock(this.redis, `listing:${id}`, async () => {
+      const row = await this.loadForActor(actor, id);
+      await this.db.table('listings').update(id, {
+        deleted_at: new Date().toISOString(),
+        deleted_by_id: actor.id,
+        version: (row.version ?? 1) + 1,
+      });
+      await this.comments.system({ type: 'listing', id }, actor.id, 'Карточка удалена');
+      await this.audit.record({
+        type: 'listing.deleted',
+        userId: actor.id,
+        entityType: 'listing',
+        entityId: id,
+        payload: { title: row.title },
+      });
+    });
   }
 
   private async loadForActor(actor: Actor, id: number): Promise<ListingRow> {

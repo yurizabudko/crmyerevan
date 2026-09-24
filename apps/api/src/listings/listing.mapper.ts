@@ -32,6 +32,7 @@ export function toListingDto(r: ListingRow): ListingDto {
     closeOutcome: r.close_outcome,
     commissionPercent: r.commission_percent,
     lastActivityAt: r.last_activity_at,
+    coverPhotoId: r.cover_photo_id,
     createdAt: r.CreatedAt,
     version: r.version ?? 1,
   };

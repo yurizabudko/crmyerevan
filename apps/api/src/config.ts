@@ -8,6 +8,8 @@ const EnvSchema = z.object({
   NOCODB_BASE_TITLE: z.string().min(1).default('crm'),
   REDIS_URL: z.string().min(1).default('redis://localhost:6379'),
   SESSION_SECRET: z.string().min(16),
+  /** Каталог для фото и других файлов (в Docker — отдельный том). */
+  FILES_DIR: z.string().min(1).default('./data/files'),
 });
 
 export type AppConfig = z.infer<typeof EnvSchema>;
