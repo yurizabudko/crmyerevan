@@ -204,7 +204,7 @@ export const schema = {
     /** listing | client — по какой карточке атрибуция */
     basis: c.text(),
     amount: c.decimal(),
-    /** accrued | paid */
+    /** accrued | paid | on_hold (партнёр заморожен — начислится после разморозки, Д-11) */
     status: c.text(),
     paid_at: c.datetime(),
     paid_method: c.text(),
@@ -221,6 +221,10 @@ export const schema = {
     next_charge_at: c.datetime(),
     grace_until: c.datetime(),
     failed_attempts: c.int(),
+    /** Следующая повторная попытка списания в grace-периоде (дни 1, 3, 7). */
+    retry_at: c.datetime(),
+    frozen_at: c.datetime(),
+    canceled_at: c.datetime(),
     version: c.int(),
   },
 
@@ -236,6 +240,8 @@ export const schema = {
     attempt: c.int(),
     error: c.text(),
     at: c.datetime(),
+    /** Ключ попытки списания — повтор задачи не спишет деньги дважды. */
+    idempotency_key: c.text(),
   },
 
   /** Только токен провайдера и маска карты; сами реквизиты карты не хранятся. */

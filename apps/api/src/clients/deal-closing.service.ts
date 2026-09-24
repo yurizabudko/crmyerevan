@@ -9,6 +9,7 @@ import { w, type NocoDb, type Row, type WithId } from '@crm/nocodb';
 import { PARTNER_REWARD_RATE } from '@crm/shared';
 import type { Redis } from 'ioredis';
 import { AuditService } from '../audit/audit.service.js';
+import { SubscriptionService } from '../billing/subscription.service.js';
 import { withLock } from '../common/redis-lock.js';
 import { NOCODB, REDIS } from '../infra/infra.module.js';
 import { CommentsService } from '../listings/comments.service.js';
@@ -48,6 +49,7 @@ export class DealClosingService implements OnModuleInit, OnApplicationShutdown {
     @Inject(StagesService) private readonly stages: StagesService,
     @Inject(CommentsService) private readonly comments: CommentsService,
     @Inject(AuditService) private readonly audit: AuditService,
+    @Inject(SubscriptionService) private readonly subscriptions: SubscriptionService,
   ) {}
 
   onModuleInit(): void {
@@ -184,12 +186,14 @@ export class DealClosingService implements OnModuleInit, OnApplicationShutdown {
         .table('partner_rewards')
         .findOne(w.and(w.eq('deal_id', deal.Id), w.eq('partner_id', partnerId)));
       if (!exists) {
+        // Замороженному партнёру вознаграждение начислится после разморозки (Д-11).
+        const onHold = !(await this.subscriptions.hasAccess(partnerId));
         const rewardId = await this.db.table('partner_rewards').create({
           deal_id: deal.Id,
           partner_id: partnerId,
           basis: basis.join('+'),
           amount,
-          status: 'accrued',
+          status: onHold ? 'on_hold' : 'accrued',
         });
         await this.audit.record({
           type: 'reward.accrued',

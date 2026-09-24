@@ -10,6 +10,11 @@ const EnvSchema = z.object({
   SESSION_SECRET: z.string().min(16),
   /** Каталог для фото и других файлов (в Docker — отдельный том). */
   FILES_DIR: z.string().min(1).default('./data/files'),
+  /** Платёжный провайдер подписки партнёров. Реальный выбирается позже (БТ-8.3.1). */
+  BILLING_PROVIDER: z.enum(['mock']).default('mock'),
+  /** Токен Telegram-бота от @BotFather; без него уведомления копятся в очереди. */
+  TELEGRAM_BOT_TOKEN: z.string().optional(),
+  TELEGRAM_BOT_USERNAME: z.string().optional(),
 });
 
 export type AppConfig = z.infer<typeof EnvSchema>;

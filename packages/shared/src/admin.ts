@@ -111,4 +111,12 @@ export const AUDIT_EVENT_LABELS: Record<string, string> = {
   'stage.changed': 'Изменены этапы',
   'dictionary.changed': 'Изменён справочник',
   'settings.changed': 'Изменены настройки',
+  'subscription.trial_started': 'Подписка: начат триал',
+  'subscription.charged': 'Подписка: списание',
+  'subscription.charge_failed': 'Подписка: ошибка списания',
+  'subscription.frozen': 'Подписка: заморозка',
+  'subscription.unfrozen': 'Подписка: разморозка',
+  'subscription.canceled': 'Подписка: отмена автопродления',
+  'subscription.resumed': 'Подписка: автопродление включено',
+  'reward.paid': 'Вознаграждение выплачено',
 };

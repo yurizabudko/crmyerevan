@@ -4,6 +4,7 @@ import type { Response } from 'express';
 import { APP_CONFIG, type AppConfig } from '../config.js';
 import { ZodPipe } from '../common/zod.pipe.js';
 import type { User } from '../users/users.repository.js';
+import { AllowWithoutSubscription } from '../billing/subscription.guard.js';
 import { AuthService } from './auth.service.js';
 import {
   AllowPendingPasswordChange,
@@ -13,6 +14,8 @@ import {
 } from './decorators.js';
 import { SESSION_COOKIE, SESSION_TTL_SECONDS } from './session.store.js';
 
+/** Вход и профиль доступны и партнёру без подписки — иначе он не попадёт на страницу оплаты. */
+@AllowWithoutSubscription()
 @Controller('auth')
 export class AuthController {
   constructor(

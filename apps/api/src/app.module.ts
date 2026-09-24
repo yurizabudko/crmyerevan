@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AdminModule } from './admin/admin.module.js';
 import { AuditModule } from './audit/audit.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { BillingModule } from './billing/billing.module.js';
 import { ClientsModule } from './clients/clients.module.js';
 import { DashboardModule } from './dashboard/dashboard.module.js';
 import { DictionariesController } from './dictionaries/dictionaries.controller.js';
@@ -19,6 +20,7 @@ import { UsersModule } from './users/users.module.js';
     StorageModule,
     AuditModule,
     AuthModule,
+    BillingModule,
     UsersModule,
     ListingsModule,
     ClientsModule,

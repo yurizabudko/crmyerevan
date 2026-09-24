@@ -11,3 +11,4 @@ export * from './clients.js';
 export * from './table.js';
 export * from './dashboard.js';
 export * from './admin.js';
+export * from './billing.js';

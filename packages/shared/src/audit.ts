@@ -19,5 +19,13 @@ export const AUDIT_EVENTS = [
   'stage.changed',
   'dictionary.changed',
   'settings.changed',
+  'subscription.trial_started',
+  'subscription.charged',
+  'subscription.charge_failed',
+  'subscription.frozen',
+  'subscription.unfrozen',
+  'subscription.canceled',
+  'subscription.resumed',
+  'reward.paid',
 ] as const;
 export type AuditEventType = (typeof AUDIT_EVENTS)[number];

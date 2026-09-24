@@ -11,7 +11,14 @@ import sharp from 'sharp';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from './app.module.js';
+import { SubscriptionService } from './billing/subscription.service.js';
 import { DealClosingService } from './clients/deal-closing.service.js';
+import { NotificationsService } from './notifications/notifications.service.js';
+import {
+  TELEGRAM_API,
+  type TelegramApi,
+  type TelegramUpdate,
+} from './notifications/telegram.client.js';
 import { hashPassword } from './auth/password.js';
 import { UsersRepository } from './users/users.repository.js';
 
@@ -24,6 +31,19 @@ const baseTitle = `crm_api_test_${Date.now()}`;
 const redisUrl = 'redis://localhost:6379/15';
 
 let app: INestApplication;
+
+/** Двойник Telegram: запоминает отправленное, отдаёт заранее заготовленные апдейты. */
+const telegram = {
+  enabled: true,
+  sent: [] as { chatId: string; text: string }[],
+  updates: [] as TelegramUpdate[],
+  async sendMessage(chatId: string, text: string) {
+    this.sent.push({ chatId, text });
+  },
+  async getUpdates(offset: number) {
+    return this.updates.filter((u) => u.update_id >= offset);
+  },
+} satisfies TelegramApi & Record<string, unknown>;
 let db: NocoDb;
 
 const PASSWORD = 'Secret2026';
@@ -45,11 +65,25 @@ async function bootstrapUser(
 /** Вход с временным паролем и его обязательная смена. */
 async function signIn(login: string, tempPassword = 'Temp12345') {
   const agent = request.agent(app.getHttpServer());
-  await agent.post('/api/auth/login').send({ login, password: tempPassword }).expect(200);
+  const { body: user } = await agent
+    .post('/api/auth/login')
+    .send({ login, password: tempPassword })
+    .expect(200);
   await agent
     .post('/api/auth/change-password')
     .send({ currentPassword: tempPassword, newPassword: PASSWORD })
     .expect(200);
+  // Партнёр без подписки видит только оплату (БТ-8.3.5) — активируем триал тестовой картой.
+  if (user.role === 'partner') {
+    await agent.post('/api/me/subscription/trial').send({ scenario: 'success' }).expect(200);
+  }
+  return agent;
+}
+
+/** Повторный вход пользователя, который уже сменил временный пароль. */
+async function logIn(login: string) {
+  const agent = request.agent(app.getHttpServer());
+  await agent.post('/api/auth/login').send({ login, password: PASSWORD }).expect(200);
   return agent;
 }
 
@@ -80,7 +114,10 @@ beforeAll(async () => {
     FILES_DIR: await mkdtemp(join(tmpdir(), 'crm-api-files-')),
   });
 
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+    .overrideProvider(TELEGRAM_API)
+    .useValue(telegram)
+    .compile();
   app = moduleRef.createNestApplication({ logger: false });
   app.use(cookieParser());
   app.setGlobalPrefix('api');
@@ -835,6 +872,7 @@ describe('CRM API', () => {
             .then((r) => r.body.id as number),
         ),
       );
+      await Promise.all(['dpa', 'dpb'].map((login) => signIn(login)));
       const qualifiedFields = {
         budgetMax: 200000,
         districtIds: [dictId('district', 'kentron')],
@@ -1146,7 +1184,7 @@ describe('CRM API', () => {
         expect.objectContaining({ currency: 'USD', amount: expect.any(Number) }),
       ]);
 
-      const partner = await signIn('dpa');
+      const partner = await logIn('dpa');
       const mine = (await partner.get(`/api/dashboard?${period()}`).expect(200)).body;
       expect(mine.deals).toEqual({
         closed: 1,
@@ -1336,6 +1374,217 @@ describe('CRM API', () => {
         .expect(200);
       expect(none.body).toMatchObject({ rows: [], total: 0 });
       await owner.get('/api/admin/audit?type=nope').expect(400);
+    });
+  });
+
+  describe('partner subscription', () => {
+    const DAY = 86_400_000;
+    const create = (login: string) =>
+      owner
+        .post('/api/users')
+        .send({ login, displayName: login, role: 'partner', temporaryPassword: 'Temp12345' })
+        .expect(201)
+        .then((r) => r.body.id as number);
+    const sub = (id: number) => db.table('subscriptions').findOne(w.eq('partner_id', id));
+    const at = (value: string | null | undefined) => new Date(String(value).replace(' ', 'T'));
+
+    it('lets a partner without subscription reach only the billing page', async () => {
+      await create('bill0');
+      const agent = request.agent(app.getHttpServer());
+      await agent
+        .post('/api/auth/login')
+        .send({ login: 'bill0', password: 'Temp12345' })
+        .expect(200);
+      await agent
+        .post('/api/auth/change-password')
+        .send({ currentPassword: 'Temp12345', newPassword: PASSWORD })
+        .expect(200);
+      const denied = await agent.get('/api/listings').expect(403);
+      expect(denied.body.code).toBe('SUBSCRIPTION_REQUIRED');
+      await agent.get('/api/auth/me').expect(200);
+      const status = await agent.get('/api/me/subscription').expect(200);
+      expect(status.body).toMatchObject({
+        status: 'none',
+        card: null,
+        price: 1000,
+        currency: 'RUB',
+      });
+
+      const trial = await agent
+        .post('/api/me/subscription/trial')
+        .send({ scenario: 'success' })
+        .expect(200);
+      expect(trial.body).toMatchObject({
+        status: 'trial',
+        autoRenew: true,
+        card: { mask: '**** 4242' },
+      });
+      const days = (at(trial.body.nextChargeAt).getTime() - Date.now()) / DAY;
+      expect(Math.round(days)).toBe(30);
+      await agent.get('/api/listings').expect(200);
+      await agent.post('/api/me/subscription/trial').send({ scenario: 'success' }).expect(400);
+      await owner.post('/api/me/subscription/trial').send({}).expect(403);
+    });
+
+    it('warns 3 days ahead and renews on the due date exactly once', async () => {
+      const id = await create('bill1');
+      await signIn('bill1');
+      const saga = app.get(SubscriptionService);
+      const due = at((await sub(id))!.next_charge_at);
+
+      await saga.tick(new Date(due.getTime() - 2 * DAY));
+      await saga.tick(new Date(due.getTime() - 1 * DAY));
+      const warnings = await db
+        .table('notifications_outbox')
+        .listAll({ where: w.and(w.eq('user_id', id), w.like('text', '%заканчивается%')) });
+      expect(warnings).toHaveLength(1);
+
+      const after = new Date(due.getTime() + 60_000);
+      await saga.tick(after);
+      await saga.tick(after);
+      const renewed = (await sub(id))!;
+      expect(renewed.status).toBe('active');
+      expect(Math.round((at(renewed.period_end).getTime() - due.getTime()) / DAY)).toBe(30);
+      const payments = await db.table('payments').listAll({ where: w.eq('partner_id', id) });
+      expect(payments.map((p) => [p.status, p.amount, p.currency])).toEqual([
+        ['succeeded', 1000, 'RUB'],
+      ]);
+    });
+
+    it('retries on days 1, 3 and 7, then freezes and returns cards to the pool', async () => {
+      const id = await create('bill2');
+      const partner = request.agent(app.getHttpServer());
+      await partner
+        .post('/api/auth/login')
+        .send({ login: 'bill2', password: 'Temp12345' })
+        .expect(200);
+      await partner
+        .post('/api/auth/change-password')
+        .send({ currentPassword: 'Temp12345', newPassword: PASSWORD })
+        .expect(200);
+      await partner.post('/api/me/subscription/trial').send({ scenario: 'decline' }).expect(200);
+      const { body: card } = await partner
+        .post('/api/listings')
+        .send({ title: 'Карточка bill2' })
+        .expect(201);
+
+      const saga = app.get(SubscriptionService);
+      const due = at((await sub(id))!.next_charge_at);
+      await saga.tick(new Date(due.getTime() + 60_000));
+      let state = (await sub(id))!;
+      expect(state).toMatchObject({ status: 'grace', failed_attempts: 1 });
+      expect(at(state.retry_at).getTime()).toBe(due.getTime() + 1 * DAY);
+      expect(at(state.grace_until).getTime()).toBe(due.getTime() + 7 * DAY);
+      await partner.get('/api/listings').expect(200);
+
+      for (const [day, attempts] of [
+        [1, 2],
+        [3, 3],
+      ] as const) {
+        await saga.tick(new Date(due.getTime() + day * DAY + 60_000));
+        state = (await sub(id))!;
+        expect(state).toMatchObject({ status: 'grace', failed_attempts: attempts });
+      }
+      await saga.tick(new Date(due.getTime() + 7 * DAY + 60_000));
+      state = (await sub(id))!;
+      expect(state.status).toBe('frozen');
+
+      const failures = await db
+        .table('payments')
+        .listAll({ where: w.and(w.eq('partner_id', id), w.eq('status', 'failed')) });
+      expect(failures.map((p) => p.attempt)).toEqual([1, 2, 3, 4]);
+      const notices = await db
+        .table('notifications_outbox')
+        .count(w.and(w.eq('user_id', id), w.like('text', 'Не удалось списать%')));
+      expect(notices).toBe(4);
+
+      const released = await db.table('listings').get(card.id);
+      expect(released).toMatchObject({ responsible_id: null, partner_source_id: id });
+      const denied = await partner.get('/api/listings').expect(403);
+      expect(denied.body.code).toBe('SUBSCRIPTION_REQUIRED');
+      expect((await partner.get('/api/me/subscription').expect(200)).body.status).toBe('frozen');
+
+      // Вознаграждение, начисленное во время заморозки, ждёт разморозки (Д-11).
+      const held = await db
+        .table('partner_rewards')
+        .create({ partner_id: id, amount: 100, status: 'on_hold', basis: 'объект' });
+      await partner.post('/api/me/subscription/pay').expect(400);
+      await partner.post('/api/me/subscription/card').send({ scenario: 'success' }).expect(200);
+      const paid = await partner.post('/api/me/subscription/pay').expect(200);
+      expect(paid.body).toMatchObject({
+        status: 'active',
+        autoRenew: true,
+        card: { mask: '**** 4242' },
+      });
+      expect((await db.table('partner_rewards').get(held))?.status).toBe('accrued');
+      await partner.get('/api/listings').expect(200);
+      const history = await partner.get('/api/me/payments').expect(200);
+      // Неудачные попытки датированы «будущим» из машины времени, поэтому ищем, а не берём первый.
+      expect(history.body).toContainEqual(
+        expect.objectContaining({ status: 'succeeded', amount: 1000 }),
+      );
+      // 4 попытки по расписанию + ручная оплата картой с отказом + успешная после смены карты.
+      expect(history.body).toHaveLength(6);
+    });
+
+    it('stops at the end of the period when auto-renew is cancelled', async () => {
+      const id = await create('bill3');
+      const partner = await signIn('bill3');
+      const off = await partner
+        .post('/api/me/subscription/auto-renew')
+        .send({ enabled: false })
+        .expect(200);
+      expect(off.body).toMatchObject({ autoRenew: false, nextChargeAt: null });
+
+      const saga = app.get(SubscriptionService);
+      const end = at((await sub(id))!.period_end);
+      await saga.tick(new Date(end.getTime() - 2 * DAY));
+      expect(
+        await db
+          .table('notifications_outbox')
+          .count(w.and(w.eq('user_id', id), w.like('text', '%заканчивается%'))),
+      ).toBe(0);
+      await saga.tick(new Date(end.getTime() + 60_000));
+      expect((await sub(id))!.status).toBe('canceled');
+      expect(await db.table('payments').count(w.eq('partner_id', id))).toBe(0);
+      await partner.get('/api/clients').expect(403);
+      const back = await partner.post('/api/me/subscription/pay').expect(200);
+      expect(back.body.status).toBe('active');
+    });
+
+    it('links Telegram through the bot and delivers queued messages', async () => {
+      const id = await create('tgp');
+      const partner = await signIn('tgp');
+      const { body: link } = await partner.post('/api/me/telegram/link').expect(200);
+      expect(link.token).toMatch(/^[a-f0-9]{32}$/);
+
+      telegram.updates.push(
+        {
+          update_id: 10,
+          message: { chat: { id: 555 }, text: '/start deadbeefdeadbeefdeadbeefdeadbeef' },
+        },
+        { update_id: 11, message: { chat: { id: 777 }, text: `/start ${link.token}` } },
+      );
+      const notifications = app.get(NotificationsService);
+      await notifications.poll();
+      expect((await db.table('users').get(id))?.telegram_chat_id).toBe('777');
+      expect(telegram.sent).toContainEqual({
+        chatId: '555',
+        text: expect.stringMatching(/устарела/),
+      });
+      expect((await partner.get('/api/me/subscription').expect(200)).body.telegramLinked).toBe(
+        true,
+      );
+
+      await notifications.flush();
+      const toPartner = telegram.sent.filter((m) => m.chatId === '777').map((m) => m.text);
+      expect(toPartner.some((t) => t.startsWith('Бесплатный период начат'))).toBe(true);
+      expect(toPartner.some((t) => t.startsWith('Telegram привязан'))).toBe(true);
+      // Без привязанного Telegram сообщение помечается пропущенным и не блокирует очередь.
+      const skipped = await db
+        .table('notifications_outbox')
+        .findOne(w.and(w.eq('status', 'skipped'), w.like('text', 'Бесплатный период начат%')));
+      expect(skipped?.last_error).toBe('Telegram не привязан');
     });
   });
 
