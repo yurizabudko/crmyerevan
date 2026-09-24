@@ -33,7 +33,8 @@ import { NOCODB, REDIS } from '../infra/infra.module.js';
 import { CommentsService, type FieldChange } from '../listings/comments.service.js';
 import { StagesService } from '../listings/stages.service.js';
 import type { ClientRow } from './client.mapper.js';
-import { isClientVisible } from './clients.service.js';
+import { DealClosingService, type DealClosedPayload } from './deal-closing.service.js';
+import { isClientVisible } from './access.js';
 
 type ClientColumns = Partial<Row<'clients'>>;
 type PatchField = Exclude<keyof ClientPatch, 'version'>;
@@ -75,6 +76,7 @@ export class ClientWorkflowService {
     @Inject(StagesService) private readonly stages: StagesService,
     @Inject(CommentsService) private readonly comments: CommentsService,
     @Inject(AuditService) private readonly audit: AuditService,
+    @Inject(DealClosingService) private readonly deals: DealClosingService,
   ) {}
 
   async create(actor: Actor, draft: ClientDraft): Promise<number> {
@@ -126,7 +128,17 @@ export class ClientWorkflowService {
     return id;
   }
 
-  changeStage(actor: Actor, id: number, input: ClientStageChange): Promise<void> {
+  async changeStage(actor: Actor, id: number, input: ClientStageChange): Promise<void> {
+    const deal = await this.applyStage(actor, id, input);
+    // Последствия сделки — после снятия блокировки клиента: сага сама берёт нужные блокировки.
+    if (deal) await this.deals.dealClosed(deal);
+  }
+
+  private applyStage(
+    actor: Actor,
+    id: number,
+    input: ClientStageChange,
+  ): Promise<DealClosedPayload | null> {
     return withLock(this.redis, `client:${id}`, async () => {
       const row = await this.load(actor, id);
       assertVersion(row, input.version);
@@ -186,7 +198,21 @@ export class ClientWorkflowService {
         patch.agreed_price = input.agreedPrice;
         history.push(this.entry('agreedPrice', str(row.agreed_price), str(input.agreedPrice)));
       }
+      let deal: DealClosedPayload | null = null;
       if (to.code === 'deal_closed') {
+        const link = await this.db
+          .table('client_listing_links')
+          .findOne(w.and(w.eq('client_id', id), w.eq('listing_id', input.dealListingId!)));
+        if (!link) throw new BadRequestException('Объект сделки должен быть в подборке клиента');
+        deal = {
+          clientId: id,
+          listingId: input.dealListingId!,
+          finalPrice: input.finalPrice!,
+          commissionFact: input.commissionFact!,
+          currency: row.currency,
+          actorId: actor.id,
+          closedAt: now,
+        };
         patch.final_price = input.finalPrice ?? null;
         patch.commission_fact = input.commissionFact ?? null;
         history.push(this.entry('finalPrice', str(row.final_price), str(input.finalPrice)));
@@ -221,6 +247,7 @@ export class ClientWorkflowService {
         at: now,
       });
       await this.comments.systemMany({ type: 'client', id }, actor.id, history);
+      return deal;
     });
   }
 

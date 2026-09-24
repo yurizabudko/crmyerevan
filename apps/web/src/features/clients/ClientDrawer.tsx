@@ -9,12 +9,12 @@ import {
   Group,
   Loader,
   Menu,
-  Modal,
   SimpleGrid,
   Stack,
   Text,
   Title,
 } from '@mantine/core';
+import { NestedModal, useHasOpenModal } from '../../components/NestedModal';
 import { useMediaQuery } from '@mantine/hooks';
 import { IconArrowRight, IconDots, IconPencil, IconTrash } from '@tabler/icons-react';
 import { useState } from 'react';
@@ -24,6 +24,7 @@ import { formatDateTime, formatPrice } from '../../lib/format';
 import { useDictionaries, useUserDirectory } from '../listings/api';
 import { useAddClientComment, useClient, useClientBoard, useDeleteClient } from './api';
 import { EditClientModal } from './EditClientModal';
+import { Selection } from './Selection';
 import type { PendingClientMove } from './ClientStageModal';
 
 interface Props {
@@ -37,6 +38,7 @@ interface Props {
 /** Карточка клиента (4.3): данные, этап, правка, комментарии и история. */
 export function ClientDrawer({ clientId, editRequested, onEditHandled, onClose, onMove }: Props) {
   const isMobile = useMediaQuery('(max-width: 48em)');
+  const hasOpenModal = useHasOpenModal();
   const { data: me } = useMe();
   const client = useClient(clientId);
   const board = useClientBoard();
@@ -51,6 +53,7 @@ export function ClientDrawer({ clientId, editRequested, onEditHandled, onClose, 
     <Drawer
       opened={clientId !== null}
       onClose={onClose}
+      closeOnEscape={!hasOpenModal}
       position="right"
       size={isMobile ? '100%' : 'lg'}
       title="Клиент"
@@ -106,6 +109,9 @@ export function ClientDrawer({ clientId, editRequested, onEditHandled, onClose, 
 
           <Details client={c} me={me} />
 
+          <Divider />
+          <Selection client={c} />
+
           <Divider label="Комментарии и история" labelPosition="left" />
           <CommentBox
             pending={addComment.isPending}
@@ -125,7 +131,7 @@ export function ClientDrawer({ clientId, editRequested, onEditHandled, onClose, 
               onEditHandled();
             }}
           />
-          <Modal
+          <NestedModal
             opened={confirmDelete}
             onClose={() => setConfirmDelete(false)}
             title="Удалить клиента?"
@@ -155,7 +161,7 @@ export function ClientDrawer({ clientId, editRequested, onEditHandled, onClose, 
                 </Button>
               </Group>
             </Stack>
-          </Modal>
+          </NestedModal>
         </Stack>
       )}
     </Drawer>

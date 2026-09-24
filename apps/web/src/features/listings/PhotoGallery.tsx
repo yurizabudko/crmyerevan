@@ -1,15 +1,6 @@
 import { can, type ListingDetailsDto, type UserDto } from '@crm/shared';
-import {
-  ActionIcon,
-  Box,
-  Button,
-  FileButton,
-  Group,
-  Image,
-  Modal,
-  SimpleGrid,
-  Text,
-} from '@mantine/core';
+import { ActionIcon, Box, Button, FileButton, Group, Image, SimpleGrid, Text } from '@mantine/core';
+import { NestedModal } from '../../components/NestedModal';
 import { notifications } from '@mantine/notifications';
 import { IconChevronLeft, IconChevronRight, IconPhotoPlus, IconTrash } from '@tabler/icons-react';
 import { useState } from 'react';
@@ -100,7 +91,7 @@ export function PhotoGallery({ listing, me }: { listing: ListingDetailsDto; me: 
         </FileButton>
       )}
 
-      <Modal
+      <NestedModal
         opened={current !== null}
         onClose={() => setViewing(null)}
         size="xl"
@@ -129,7 +120,7 @@ export function PhotoGallery({ listing, me }: { listing: ListingDetailsDto; me: 
             )}
           </>
         )}
-      </Modal>
+      </NestedModal>
     </Box>
   );
 }

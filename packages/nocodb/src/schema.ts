@@ -146,6 +146,7 @@ export const schema = {
   showings: {
     client_id: c.int(),
     listing_id: c.int(),
+    link_id: c.int(),
     scheduled_at: c.datetime(),
     created_by_id: c.int(),
   },
@@ -186,8 +187,11 @@ export const schema = {
   },
 
   deals: {
+    /** Ключ доменного события закрытия сделки — защита от двойного создания при повторах. */
+    idempotency_key: c.text(),
     client_id: c.int(),
     listing_id: c.int(),
+    currency: c.text(),
     final_price: c.decimal(),
     commission_fact: c.decimal(),
     closed_by_id: c.int(),

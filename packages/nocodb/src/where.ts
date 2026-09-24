@@ -4,7 +4,9 @@
  * Особенности, проверенные на NocoDB 2026.09:
  * - значения передаются как есть, без кавычек и экранирования; запятые и скобки
  *   внутри значения допустимы, но последовательность `)~` сломает разбор;
- * - `(field,is,null)` фильтр игнорирует — для пустых значений нужен `blank`/`notblank`.
+ * - `(field,is,null)` фильтр игнорирует — для пустых значений нужен `blank`/`notblank`;
+ * - две группы подряд на одном уровне — «Invalid filter format»: `(A~or~B)~and(C~or~D)`.
+ *   Между ними вставляется нейтральное условие по первичному ключу (см. `join`).
  */
 export type Scalar = string | number | boolean;
 
@@ -54,8 +56,18 @@ export const w = {
   or: (...conditions: Condition[]) => join('or', conditions),
 };
 
+const isGroup = (c: Condition) => c.startsWith('((');
+
+/** Нейтральные условия: `Id` есть у каждой записи — истина для AND, ложь для OR. */
+const NEUTRAL = { and: '(Id,notblank)', or: '(Id,blank)' } as const;
+
 function join(op: 'and' | 'or', conditions: Condition[]): Condition {
   if (conditions.length === 0) throw new Error('Пустой набор условий');
   if (conditions.length === 1) return conditions[0]!;
-  return `(${conditions.join(`~${op}`)})` as Condition;
+  const parts: string[] = [];
+  conditions.forEach((c, i) => {
+    if (i > 0 && isGroup(c) && isGroup(conditions[i - 1]!)) parts.push(NEUTRAL[op]);
+    parts.push(c);
+  });
+  return `(${parts.join(`~${op}`)})` as Condition;
 }

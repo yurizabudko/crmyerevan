@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { LinksService } from '../clients/links.service.js';
 import { CommentsService } from './comments.service.js';
 import { ListingIntakeService } from './listing-intake.service.js';
 import { ListingPhotosService } from './listing-photos.service.js';
@@ -17,7 +18,8 @@ import { StagesService } from './stages.service.js';
     ListingPhotosService,
     StagesService,
     CommentsService,
+    LinksService,
   ],
-  exports: [ListingIntakeService, StagesService, CommentsService],
+  exports: [ListingIntakeService, StagesService, CommentsService, LinksService],
 })
 export class ListingsModule {}

@@ -12,12 +12,12 @@ import {
   Checkbox,
   Group,
   List,
-  Modal,
   SegmentedControl,
   Stack,
   Text,
   TextInput,
 } from '@mantine/core';
+import { NestedModal } from '../../components/NestedModal';
 import { notifications } from '@mantine/notifications';
 import { useEffect, useState } from 'react';
 import { ApiError } from '../../api/client';
@@ -106,7 +106,7 @@ export function StageChangeModal({
   const blocked = move !== null && !needsInput && errors.length > 0;
 
   return (
-    <Modal
+    <NestedModal
       opened={move !== null && (needsInput || blocked)}
       onClose={close}
       title={move ? `Перевод на этап «${move.to.name}»` : ''}
@@ -175,6 +175,6 @@ export function StageChangeModal({
           </Group>
         </Stack>
       )}
-    </Modal>
+    </NestedModal>
   );
 }

@@ -8,6 +8,7 @@ import { createRoot } from 'react-dom/client';
 import { RouterProvider } from 'react-router';
 import { ApiError } from './api/client';
 import { AuthGate } from './auth/AuthGate';
+import { OpenModalsProvider } from './components/NestedModal';
 import { ME_KEY } from './auth/useAuth';
 import { router } from './router';
 
@@ -41,9 +42,11 @@ createRoot(document.getElementById('root')!).render(
     <MantineProvider theme={theme} defaultColorScheme="auto">
       <Notifications position="top-center" />
       <QueryClientProvider client={queryClient}>
-        <AuthGate>
-          <RouterProvider router={router} />
-        </AuthGate>
+        <OpenModalsProvider>
+          <AuthGate>
+            <RouterProvider router={router} />
+          </AuthGate>
+        </OpenModalsProvider>
       </QueryClientProvider>
     </MantineProvider>
   </StrictMode>,

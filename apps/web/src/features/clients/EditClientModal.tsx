@@ -8,13 +8,13 @@ import {
   Alert,
   Button,
   Group,
-  Modal,
   NumberInput,
   Select,
   SimpleGrid,
   Stack,
   TextInput,
 } from '@mantine/core';
+import { NestedModal } from '../../components/NestedModal';
 import { useForm } from '@mantine/form';
 import { useMediaQuery } from '@mantine/hooks';
 import { useMemo } from 'react';
@@ -75,7 +75,7 @@ export function EditClientModal({
   });
 
   return (
-    <Modal
+    <NestedModal
       opened={opened}
       onClose={close}
       title="Редактирование клиента"
@@ -146,6 +146,6 @@ export function EditClientModal({
           </Group>
         </Stack>
       </form>
-    </Modal>
+    </NestedModal>
   );
 }

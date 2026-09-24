@@ -91,6 +91,13 @@ describe('records', () => {
     ).toBe(1);
     expect(await listings.count(w.blank('responsible_id'))).toBe(1);
 
+    // Две группы подряд NocoDB сам не разбирает — построитель это обходит.
+    const either = (f: string) => w.or(w.blank(f), w.gte(f, 0));
+    expect(await listings.count(w.and(either('price'), either('rooms')))).toBe(1);
+    expect(
+      await listings.count(w.or(w.and(w.eq('Id', id), either('price')), either('rooms'))),
+    ).toBe(1);
+
     await listings.delete([id]);
     expect(await listings.get(id)).toBeNull();
   });

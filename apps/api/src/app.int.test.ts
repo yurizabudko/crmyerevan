@@ -11,6 +11,7 @@ import sharp from 'sharp';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from './app.module.js';
+import { DealClosingService } from './clients/deal-closing.service.js';
 import { hashPassword } from './auth/password.js';
 import { UsersRepository } from './users/users.repository.js';
 
@@ -655,6 +656,7 @@ describe('CRM API', () => {
       const closed = await move(emp, c.id, 7, 'deal_closed', {
         finalPrice: 138000,
         commissionFact: 4140,
+        dealListingId: listing.id,
       }).expect(200);
       expect(closed.body).toMatchObject({ finalPrice: 138000, commissionFact: 4140 });
       await move(emp, c.id, 8, 'selection').expect(400);
@@ -711,6 +713,211 @@ describe('CRM API', () => {
 
       await emp.post(`/api/clients/${c.id}/comments`).send({ body: 'Перезвонить' }).expect(201);
       expect((await emp.get(`/api/clients/${c.id}`).expect(200)).body.isOverdue).toBe(false);
+    });
+
+    it('manages the selection and schedules showings', async () => {
+      const { body: c } = await emp
+        .post('/api/clients')
+        .send({ name: 'Подборка', phone: '090 100 200', sourceId: dictId('source', 'call') })
+        .expect(201);
+      const { body: l1 } = await owner
+        .post('/api/listings')
+        .send({ title: 'Подборка 1' })
+        .expect(201);
+      const { body: l2 } = await owner
+        .post('/api/listings')
+        .send({ title: 'Подборка 2' })
+        .expect(201);
+
+      const added = await emp
+        .post(`/api/clients/${c.id}/links`)
+        .send({ listingId: l1.id })
+        .expect(201);
+      expect(added.body.links).toEqual([
+        expect.objectContaining({
+          listingId: l1.id,
+          status: 'proposed',
+          listing: expect.objectContaining({ title: 'Подборка 1' }),
+        }),
+      ]);
+      await emp.post(`/api/clients/${c.id}/links`).send({ listingId: l1.id }).expect(409);
+      await emp.post(`/api/clients/${c.id}/links`).send({ listingId: l2.id }).expect(201);
+      const linkId = added.body.links[0].id;
+
+      await emp
+        .patch(`/api/clients/${c.id}/links/${linkId}`)
+        .send({ status: 'showing_scheduled' })
+        .expect(400);
+      const shown = await emp
+        .patch(`/api/clients/${c.id}/links/${linkId}`)
+        .send({ status: 'showing_scheduled', showingAt: '2026-10-07T09:00:00Z' })
+        .expect(200);
+      expect(shown.body.showingsCount).toBe(1);
+      expect(shown.body.nextShowingAt).not.toBeNull();
+
+      await emp
+        .patch(`/api/clients/${c.id}/links/${linkId}`)
+        .send({ status: 'chosen' })
+        .expect(200);
+      const second = shown.body.links.find((x: { listingId: number }) => x.listingId === l2.id);
+      await emp
+        .patch(`/api/clients/${c.id}/links/${second.id}`)
+        .send({ status: 'chosen' })
+        .expect(400);
+      await emp.delete(`/api/clients/${c.id}/links/${linkId}`).expect(400);
+      const removed = await emp.delete(`/api/clients/${c.id}/links/${second.id}`).expect(200);
+      expect(removed.body.links).toHaveLength(1);
+
+      // В карточке объекта видно, кому его предлагали (БТ-4.4.2).
+      const listingCard = await owner.get(`/api/listings/${l1.id}`).expect(200);
+      expect(listingCard.body.links).toEqual([
+        expect.objectContaining({
+          clientId: c.id,
+          status: 'chosen',
+          client: expect.objectContaining({ name: 'Подборка' }),
+        }),
+      ]);
+    });
+
+    it('matches listings and clients by budget, district and type', async () => {
+      const kentron = dictId('district', 'kentron');
+      const apartment = dictId('property_type', 'apartment');
+      const { body: c } = await emp
+        .post('/api/clients')
+        .send({
+          name: 'Подбор',
+          phone: '090 300 400',
+          sourceId: dictId('source', 'call'),
+          budgetMin: 80000,
+          budgetMax: 120000,
+          districtIds: [kentron],
+          propertyTypeId: apartment,
+        })
+        .expect(201);
+      const mk = (title: string, price: number, districtId = kentron, currency = 'USD') =>
+        owner
+          .post('/api/listings')
+          .send({ title, price, districtId, propertyTypeId: apartment, currency })
+          .expect(201)
+          .then((r) => r.body);
+      const fits = await mk('Подбор: подходит', 100000);
+      await mk('Подбор: дорого', 150000);
+      await mk('Подбор: другой район', 100000, dictId('district', 'arabkir'));
+      await mk('Подбор: драмы', 100000, kentron, 'AMD');
+
+      const matches = await emp.get(`/api/clients/${c.id}/matches`).expect(200);
+      expect(matches.body.map((m: { listing: { title: string } }) => m.listing.title)).toEqual([
+        'Подбор: подходит',
+      ]);
+      expect(matches.body[0].reasons).toEqual(['бюджет', 'район', 'тип']);
+
+      const search = await emp.get(`/api/clients/${c.id}/matches?q=Подбор: дор`).expect(200);
+      expect(search.body.map((m: { listing: { title: string } }) => m.listing.title)).toEqual([
+        'Подбор: дорого',
+      ]);
+
+      const clients = await owner.get(`/api/listings/${fits.id}/matches`).expect(200);
+      expect(clients.body.map((m: { client: { name: string } }) => m.client.name)).toContain(
+        'Подбор',
+      );
+      await emp.post(`/api/clients/${c.id}/links`).send({ listingId: fits.id }).expect(201);
+      const after = await emp.get(`/api/clients/${c.id}/matches`).expect(200);
+      expect(after.body).toEqual([]);
+    });
+
+    it('closes a deal: listing, selection and partner rewards follow', async () => {
+      const [pa, pb] = await Promise.all(
+        ['dpa', 'dpb'].map((login) =>
+          owner
+            .post('/api/users')
+            .send({ login, displayName: login, role: 'partner', temporaryPassword: 'Temp12345' })
+            .expect(201)
+            .then((r) => r.body.id as number),
+        ),
+      );
+      const qualifiedFields = {
+        budgetMax: 200000,
+        districtIds: [dictId('district', 'kentron')],
+        propertyTypeId: dictId('property_type', 'apartment'),
+        timeframe: 'сейчас',
+      };
+      const { body: c } = await emp
+        .post('/api/clients')
+        .send({
+          name: 'Сделка',
+          phone: '090 500 600',
+          sourceId: dictId('source', 'call'),
+          ...qualifiedFields,
+        })
+        .expect(201);
+      const { body: sold } = await owner
+        .post('/api/listings')
+        .send({ title: 'Сделка: объект' })
+        .expect(201);
+      const { body: other } = await owner
+        .post('/api/listings')
+        .send({ title: 'Сделка: другой' })
+        .expect(201);
+      await owner
+        .patch(`/api/clients/${c.id}`)
+        .send({ version: 1, partnerSourceId: pa })
+        .expect(200);
+      await owner
+        .patch(`/api/listings/${sold.id}`)
+        .send({ version: 1, partnerSourceId: pb })
+        .expect(200);
+      await emp.post(`/api/clients/${c.id}/links`).send({ listingId: sold.id }).expect(201);
+      await emp.post(`/api/clients/${c.id}/links`).send({ listingId: other.id }).expect(201);
+
+      const version = (await emp.get(`/api/clients/${c.id}`).expect(200)).body.version;
+      await move(emp, c.id, version, 'deal_closed', {
+        conversationConfirmed: true,
+        finalPrice: 180000,
+        commissionFact: 5400,
+      }).expect(400);
+      const closed = await move(emp, c.id, version, 'deal_closed', {
+        conversationConfirmed: true,
+        finalPrice: 180000,
+        commissionFact: 5400,
+        dealListingId: sold.id,
+      }).expect(200);
+      expect(
+        closed.body.links.map((l: { listingId: number; status: string }) => [
+          l.listingId,
+          l.status,
+        ]),
+      ).toEqual([
+        [sold.id, 'chosen'],
+        [other.id, 'client_rejected'],
+      ]);
+      expect(closed.body.comments[0].body).toMatch(/^Закрыта сделка №\d+: объект «Сделка: объект»/);
+
+      const listing = (await owner.get(`/api/listings/${sold.id}`).expect(200)).body;
+      expect(listing).toMatchObject({ stageId: expect.any(Number), closeOutcome: 'success' });
+      expect(listing.comments[0].body).toMatch(
+        /Объект закрыт автоматически: сделка №\d+ с клиентом Сделка/,
+      );
+
+      const deal = await db.table('deals').findOne(w.eq('client_id', c.id));
+      expect(deal).toMatchObject({ listing_id: sold.id, commission_fact: 5400 });
+      const rewards = await db
+        .table('partner_rewards')
+        .listAll({ where: w.eq('deal_id', deal!.Id) });
+      expect(rewards.map((r) => [r.partner_id, r.amount, r.status, r.basis]).sort()).toEqual(
+        [
+          [pa, 540, 'accrued', 'клиент'],
+          [pb, 540, 'accrued', 'объект'],
+        ].sort(),
+      );
+      const event = await db.table('domain_events').findOne(w.eq('status', 'done'));
+      expect(event?.type).toBe('deal.closed');
+
+      // Повторная обработка события ничего не дублирует.
+      const saga = app.get(DealClosingService);
+      await db.table('domain_events').update(event!.Id, { status: 'pending' });
+      expect(await saga.reconcile()).toBeGreaterThanOrEqual(1);
+      expect(await db.table('deals').count(w.eq('client_id', c.id))).toBe(1);
+      expect(await db.table('partner_rewards').count(w.eq('deal_id', deal!.Id))).toBe(2);
     });
 
     it('soft-deletes clients for those with the right', async () => {

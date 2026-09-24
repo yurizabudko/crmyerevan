@@ -2,6 +2,7 @@ import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { w, type Condition, type NocoDb } from '@crm/nocodb';
 import type { Actor, ListingBoardDto, ListingDetailsDto } from '@crm/shared';
 import { NOCODB } from '../infra/infra.module.js';
+import { LinksService } from '../clients/links.service.js';
 import { CommentsService } from './comments.service.js';
 import { ListingPhotosService } from './listing-photos.service.js';
 import { toListingDto } from './listing.mapper.js';
@@ -17,6 +18,7 @@ export class ListingsService {
     @Inject(StagesService) private readonly stages: StagesService,
     @Inject(CommentsService) private readonly comments: CommentsService,
     @Inject(ListingPhotosService) private readonly photos: ListingPhotosService,
+    @Inject(LinksService) private readonly links: LinksService,
   ) {}
 
   /** Доска воронки. Сортировка по умолчанию — свежие изменения сверху (БТ-3.3.1). */
@@ -36,11 +38,12 @@ export class ListingsService {
       .table('listings')
       .findOne(w.and(w.eq('Id', id), await this.visibleTo(actor)));
     if (!row) throw new NotFoundException('Объявление не найдено');
-    const [comments, photos] = await Promise.all([
+    const [comments, photos, links] = await Promise.all([
       this.comments.list({ type: 'listing', id }, actor),
       this.photos.list(id),
+      this.links.forListing(actor, id),
     ]);
-    return { ...toListingDto(row), comments, photos };
+    return { ...toListingDto(row), comments, photos, links };
   }
 
   /**

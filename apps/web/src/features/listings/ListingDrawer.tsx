@@ -9,12 +9,12 @@ import {
   Group,
   Loader,
   Menu,
-  Modal,
   SimpleGrid,
   Stack,
   Text,
   Title,
 } from '@mantine/core';
+import { NestedModal, useHasOpenModal } from '../../components/NestedModal';
 import { useMediaQuery } from '@mantine/hooks';
 import { IconArrowRight, IconDots, IconPencil, IconTrash } from '@tabler/icons-react';
 import { useState } from 'react';
@@ -29,6 +29,7 @@ import {
   useUserDirectory,
 } from './api';
 import { PhotoGallery } from './PhotoGallery';
+import { ListingClients } from '../clients/ListingClients';
 import { CommentBox, Field, History } from '../../components/cards/CardParts';
 import { EditListingModal } from './EditListingModal';
 import type { PendingMove } from './StageChangeModal';
@@ -44,6 +45,7 @@ interface Props {
 /** Карточка объявления (п. 3.4): поля, смена этапа, правка, комментарии и история. */
 export function ListingDrawer({ listingId, onClose, onMove }: Props) {
   const isMobile = useMediaQuery('(max-width: 48em)');
+  const hasOpenModal = useHasOpenModal();
   const { data: me } = useMe();
   const listing = useListing(listingId);
   const board = useListingBoard();
@@ -57,6 +59,7 @@ export function ListingDrawer({ listingId, onClose, onMove }: Props) {
     <Drawer
       opened={listingId !== null}
       onClose={onClose}
+      closeOnEscape={!hasOpenModal}
       position="right"
       size={isMobile ? '100%' : 'lg'}
       title="Объявление"
@@ -108,6 +111,9 @@ export function ListingDrawer({ listingId, onClose, onMove }: Props) {
 
           <Details listing={l} me={me} />
 
+          <Divider />
+          <ListingClients listing={l} me={me} />
+
           <Divider label="Комментарии и история" labelPosition="left" />
           <CommentBox
             pending={addComment.isPending}
@@ -118,7 +124,7 @@ export function ListingDrawer({ listingId, onClose, onMove }: Props) {
           />
           <History comments={l.comments} />
 
-          <Modal
+          <NestedModal
             opened={confirmDelete}
             onClose={() => setConfirmDelete(false)}
             title="Удалить карточку?"
@@ -148,7 +154,7 @@ export function ListingDrawer({ listingId, onClose, onMove }: Props) {
                 </Button>
               </Group>
             </Stack>
-          </Modal>
+          </NestedModal>
 
           <EditListingModal
             listing={l}

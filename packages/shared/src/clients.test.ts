@@ -92,7 +92,13 @@ describe('checkClientTransition', () => {
     expect(check('showings')).toEqual(['Укажите дату и время показа']);
     expect(check('negotiation')).toEqual(['Укажите согласованную цену']);
     expect(check('negotiation', {}, { ...ready, agreedPrice: 100000 })).toEqual([]);
-    expect(check('deal_closed', { finalPrice: 100000 })).toEqual(['Укажите комиссию (факт)']);
+    expect(check('deal_closed', { finalPrice: 100000 })).toEqual([
+      'Выберите объект сделки из подборки',
+      'Укажите комиссию (факт)',
+    ]);
+    expect(check('deal_closed', { finalPrice: 1, commissionFact: 1, dealListingId: 3 })).toEqual(
+      [],
+    );
     expect(check('rejected')).toEqual(['Укажите причину отказа']);
     expect(check('rejected', { rejectReasonId: 4 })).toEqual([]);
   });

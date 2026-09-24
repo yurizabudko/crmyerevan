@@ -13,5 +13,7 @@ export const AUDIT_EVENTS = [
   'listing.deleted',
   'client.created',
   'client.deleted',
+  'deal.closed',
+  'reward.accrued',
 ] as const;
 export type AuditEventType = (typeof AUDIT_EVENTS)[number];

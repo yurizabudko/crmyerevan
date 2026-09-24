@@ -4,7 +4,8 @@ import {
   type ListingDto,
   type UserDto,
 } from '@crm/shared';
-import { Alert, Button, Group, Modal, Select, SimpleGrid, Stack, TextInput } from '@mantine/core';
+import { Alert, Button, Group, Select, SimpleGrid, Stack, TextInput } from '@mantine/core';
+import { NestedModal } from '../../components/NestedModal';
 import { useForm } from '@mantine/form';
 import { useMediaQuery } from '@mantine/hooks';
 import { useMemo } from 'react';
@@ -66,7 +67,13 @@ export function EditListingModal({ listing, me, opened, onClose }: Props) {
   });
 
   return (
-    <Modal opened={opened} onClose={close} title="Редактирование" size="lg" fullScreen={isMobile}>
+    <NestedModal
+      opened={opened}
+      onClose={close}
+      title="Редактирование"
+      size="lg"
+      fullScreen={isMobile}
+    >
       <form onSubmit={submit}>
         <Stack>
           <ListingFields form={form} isLocked={isLocked} />
@@ -114,6 +121,6 @@ export function EditListingModal({ listing, me, opened, onClose }: Props) {
           </Group>
         </Stack>
       </form>
-    </Modal>
+    </NestedModal>
   );
 }

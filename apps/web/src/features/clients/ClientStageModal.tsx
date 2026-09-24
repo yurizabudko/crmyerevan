@@ -12,7 +12,6 @@ import {
   Checkbox,
   Group,
   List,
-  Modal,
   NumberInput,
   Select,
   SimpleGrid,
@@ -20,12 +19,13 @@ import {
   Text,
   TextInput,
 } from '@mantine/core';
+import { NestedModal } from '../../components/NestedModal';
 import { notifications } from '@mantine/notifications';
 import { useEffect, useState } from 'react';
 import { ApiError } from '../../api/client';
 import { yerevanInputToIso } from '../../lib/format';
 import { useDictionaries } from '../listings/api';
-import { useChangeClientStage } from './api';
+import { useChangeClientStage, useClient } from './api';
 
 export interface PendingClientMove {
   client: ClientDto | ClientDetailsDto;
@@ -58,8 +58,13 @@ export function ClientStageModal({
   const [finalPrice, setFinalPrice] = useState<number | string>('');
   const [commissionFact, setCommissionFact] = useState<number | string>('');
   const [rejectReasonId, setRejectReason] = useState<string | null>(null);
+  const [dealListingId, setDealListing] = useState<string | null>(null);
 
   const req = move ? clientTransitionRequirements(move.from?.code ?? null, move.to.code) : null;
+  // Для сделки нужна подборка клиента — на доске её нет, подгружаем карточку.
+  const details = useClient(req?.deal && move ? move.client.id : null);
+  const links = details.data?.links ?? [];
+  const chosen = links.find((l) => l.status === 'chosen');
   const needsInput =
     !!req &&
     (req.conversationConfirmed || req.showingAt || req.agreedPrice || req.deal || req.rejectReason);
@@ -71,6 +76,11 @@ export function ClientStageModal({
     finalPrice: num(finalPrice),
     commissionFact: num(commissionFact),
     rejectReasonId: rejectReasonId ? Number(rejectReasonId) : undefined,
+    dealListingId: dealListingId
+      ? Number(dealListingId)
+      : req?.deal && chosen
+        ? chosen.listingId
+        : undefined,
   };
   const client = move?.client;
   const errors =
@@ -104,6 +114,7 @@ export function ClientStageModal({
     setFinalPrice('');
     setCommissionFact('');
     setRejectReason(null);
+    setDealListing(null);
     change.reset();
     onClose();
   };
@@ -135,7 +146,11 @@ export function ClientStageModal({
   const opened = move !== null && (needsInput || errors.length > 0);
 
   return (
-    <Modal opened={opened} onClose={close} title={move ? `Перевод на этап «${move.to.name}»` : ''}>
+    <NestedModal
+      opened={opened}
+      onClose={close}
+      title={move ? `Перевод на этап «${move.to.name}»` : ''}
+    >
       {move && req && (
         <Stack>
           <Text size="sm" fw={500}>
@@ -167,6 +182,18 @@ export function ClientStageModal({
                   placeholder={move.client.agreedPrice?.toString()}
                   value={agreedPrice}
                   onChange={setAgreedPrice}
+                />
+              )}
+              {req.deal && (
+                <Select
+                  label="Объект сделки"
+                  description="Из подборки клиента; объект закроется автоматически"
+                  data={links
+                    .filter((l) => l.listing && !l.listing.closed)
+                    .map((l) => ({ value: String(l.listingId), label: l.listing!.title }))}
+                  value={dealListingId ?? (chosen ? String(chosen.listingId) : null)}
+                  onChange={setDealListing}
+                  nothingFoundMessage="Подборка пуста"
                 />
               )}
               {req.deal && (
@@ -233,6 +260,6 @@ export function ClientStageModal({
           </Group>
         </Stack>
       )}
-    </Modal>
+    </NestedModal>
   );
 }

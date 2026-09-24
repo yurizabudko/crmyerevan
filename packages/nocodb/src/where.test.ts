@@ -31,6 +31,14 @@ describe('where builder', () => {
     expect(w.and(w.eq('a', 1))).toBe('(a,eq,1)');
   });
 
+  it('separates adjacent groups with a neutral condition', () => {
+    const g1 = w.or(w.blank('a'), w.eq('a', 1));
+    const g2 = w.or(w.blank('b'), w.eq('b', 2));
+    expect(w.and(g1, g2)).toBe(`(${g1}~and(Id,notblank)~and${g2})`);
+    expect(w.or(g1, g2)).toBe(`(${g1}~or(Id,blank)~or${g2})`);
+    expect(w.and(w.eq('c', 3), g1, g2)).toBe(`((c,eq,3)~and${g1}~and(Id,notblank)~and${g2})`);
+  });
+
   it('rejects empty lists', () => {
     expect(() => w.in('a', [])).toThrow();
   });

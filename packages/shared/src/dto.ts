@@ -84,6 +84,8 @@ export interface ListingBoardDto {
 export interface ListingDetailsDto extends ListingDto {
   comments: CommentDto[];
   photos: PhotoDto[];
+  /** Клиенты, которым предлагали объект (БТ-4.4.2); партнёру — только его клиенты. */
+  links: ClientListingLinkDto[];
 }
 
 export interface DictionaryItemDto {
@@ -135,6 +137,44 @@ export interface ClientBoardDto {
 export interface ClientDetailsDto extends ClientDto {
   comments: CommentDto[];
   linkedListings: number;
+  links: ClientListingLinkDto[];
+}
+
+/** Связь клиент ↔ объявление с краткими данными второй стороны (БТ-4.4.2). */
+export interface ClientListingLinkDto {
+  id: number;
+  clientId: number;
+  listingId: number;
+  status: string;
+  showingAt: string | null;
+  listing: {
+    title: string;
+    price: number | null;
+    currency: string | null;
+    districtId: number | null;
+    rooms: number | null;
+    coverPhotoId: number | null;
+    closed: boolean;
+  } | null;
+  client: { name: string; phone: string | null } | null;
+}
+
+/** Кандидат при автоподборе: объявление для клиента или клиент для объявления. */
+export interface MatchDto {
+  listing?: ListingDto;
+  client?: ClientDto;
+  /** Какие критерии совпали — для подсказки в интерфейсе. */
+  reasons: string[];
+}
+
+export interface DealDto {
+  id: number;
+  clientId: number | null;
+  listingId: number | null;
+  finalPrice: number | null;
+  commissionFact: number | null;
+  currency: string | null;
+  closedAt: string | null;
 }
 
 /** Краткие данные пользователя для списков выбора и подписей. */

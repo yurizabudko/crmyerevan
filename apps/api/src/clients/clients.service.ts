@@ -1,5 +1,5 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { w, type Condition, type NocoDb } from '@crm/nocodb';
+import { w, type NocoDb } from '@crm/nocodb';
 import {
   OVERDUE_CLIENT_STAGES,
   type Actor,
@@ -10,7 +10,9 @@ import {
 import { NOCODB } from '../infra/infra.module.js';
 import { CommentsService } from '../listings/comments.service.js';
 import { StagesService } from '../listings/stages.service.js';
+import { visibleClients } from './access.js';
 import { toClientDto, type ClientRow } from './client.mapper.js';
+import { LinksService } from './links.service.js';
 
 /** Чтение воронки клиентов с учётом видимости (2.2): партнёр видит созданных им и назначенных ему. */
 @Injectable()
@@ -19,6 +21,7 @@ export class ClientsService {
     @Inject(NOCODB) private readonly db: NocoDb,
     @Inject(StagesService) private readonly stages: StagesService,
     @Inject(CommentsService) private readonly comments: CommentsService,
+    @Inject(LinksService) private readonly links: LinksService,
   ) {}
 
   async board(actor: Actor): Promise<ClientBoardDto> {
@@ -37,12 +40,12 @@ export class ClientsService {
       .table('clients')
       .findOne(w.and(w.eq('Id', id), visibleClients(actor)));
     if (!row) throw new NotFoundException('Клиент не найден');
-    const [comments, linkedListings, dto] = await Promise.all([
+    const [comments, links, dto] = await Promise.all([
       this.comments.list({ type: 'client', id }, actor),
-      this.db.table('client_listing_links').count(w.eq('client_id', id)),
+      this.links.forClient(id),
       this.toDto(row),
     ]);
-    return { ...dto, comments, linkedListings };
+    return { ...dto, comments, links, linkedListings: links.length };
   }
 
   async toDto(row: ClientRow): Promise<ClientDto> {
@@ -57,16 +60,4 @@ export class ClientsService {
         .map((s) => s.id),
     );
   }
-}
-
-export function visibleClients(actor: Actor): Condition {
-  const notDeleted = w.blank('deleted_at');
-  if (actor.role !== 'partner') return notDeleted;
-  return w.and(notDeleted, w.or(w.eq('created_by_id', actor.id), w.eq('responsible_id', actor.id)));
-}
-
-export function isClientVisible(actor: Actor, row: ClientRow): boolean {
-  if (row.deleted_at) return false;
-  if (actor.role !== 'partner') return true;
-  return row.created_by_id === actor.id || row.responsible_id === actor.id;
 }

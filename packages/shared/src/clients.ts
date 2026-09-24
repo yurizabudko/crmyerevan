@@ -79,6 +79,8 @@ export const ClientStageChange = z.object({
   finalPrice: money.optional(),
   commissionFact: money.optional(),
   rejectReasonId: id.optional(),
+  /** Объект сделки — одно из привязанных объявлений (БТ-4.4.3). */
+  dealListingId: id.optional(),
 });
 export type ClientStageChange = z.infer<typeof ClientStageChange>;
 
@@ -186,6 +188,7 @@ export function checkClientTransition(c: ClientTransitionCheck): string[] {
     errors.push('Укажите согласованную цену');
   }
   if (req.deal) {
+    if (input.dealListingId === undefined) errors.push('Выберите объект сделки из подборки');
     if (input.finalPrice === undefined) errors.push('Укажите финальную цену сделки');
     if (input.commissionFact === undefined) errors.push('Укажите комиссию (факт)');
   }
@@ -227,3 +230,25 @@ export const CLIENT_FIELD_LABELS: Record<string, string> = {
   rejectReasonId: 'Причина отказа',
   stageId: 'Этап',
 };
+
+/** Статусы связи клиент ↔ объявление (БТ-4.4.1). */
+export const LINK_STATUS_LABELS: Record<string, string> = {
+  proposed: 'предложено',
+  showing_scheduled: 'показ назначен',
+  shown: 'показан',
+  client_rejected: 'отказ клиента',
+  chosen: 'выбрано',
+};
+
+export const LinkCreate = z.object({ listingId: id });
+export type LinkCreate = z.infer<typeof LinkCreate>;
+
+export const LinkUpdate = z.object({
+  status: z.enum(['proposed', 'showing_scheduled', 'shown', 'client_rejected', 'chosen']),
+  /** Обязательна для «показ назначен» — создаёт запись показа. */
+  showingAt: isoDateTime.optional(),
+});
+export type LinkUpdate = z.infer<typeof LinkUpdate>;
+
+/** Вознаграждение партнёра — 10% от комиссии (факт) по сделке с его атрибуцией (8.1). */
+export const PARTNER_REWARD_RATE = 0.1;
