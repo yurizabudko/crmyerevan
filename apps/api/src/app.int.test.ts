@@ -1051,6 +1051,118 @@ describe('CRM API', () => {
     });
   });
 
+  describe('dashboard', () => {
+    const period = () => {
+      const now = Date.now();
+      return `from=${new Date(now - 86_400_000).toISOString()}&to=${new Date(now + 86_400_000).toISOString()}`;
+    };
+
+    it('counts personal activity, stages, conversions and overdue', async () => {
+      const { body: dashUser } = await owner
+        .post('/api/users')
+        .send({
+          login: 'dash',
+          displayName: 'Дэш',
+          role: 'employee',
+          temporaryPassword: 'Temp12345',
+        })
+        .expect(201);
+      const dash = await signIn('dash');
+      const boards = {
+        listings: (await dash.get('/api/listings').expect(200)).body.stages,
+        clients: (await dash.get('/api/clients').expect(200)).body.stages,
+      };
+      const stageId = (list: { code: string; id: number }[], code: string) =>
+        list.find((x) => x.code === code)!.id;
+      const source = (await dash.get('/api/dictionaries').expect(200)).body.source[0].id;
+
+      const { body: a } = await dash.post('/api/listings').send({ title: 'Дэш A' }).expect(201);
+      await dash.post('/api/listings').send({ title: 'Дэш B' }).expect(201);
+      await dash
+        .post(`/api/listings/${a.id}/stage`)
+        .send({ stageId: stageId(boards.listings, 'call'), version: 1 })
+        .expect(200);
+      await dash.post(`/api/listings/${a.id}/comments`).send({ body: 'заметка' }).expect(201);
+      await dash
+        .post(`/api/listings/${a.id}/comments`)
+        .send({ body: 'звонил', kind: 'call' })
+        .expect(201);
+      const { body: c } = await dash
+        .post('/api/clients')
+        .send({ name: 'Дэш клиент', phone: '055 900 900', sourceId: source })
+        .expect(201);
+      await dash
+        .post(`/api/clients/${c.id}/stage`)
+        .send({ stageId: stageId(boards.clients, 'call'), version: 1 })
+        .expect(200);
+      await dash.patch(`/api/clients/${c.id}`).send({ version: 2, budgetMax: 100000 }).expect(200);
+
+      const me = (await dash.get(`/api/dashboard?${period()}`).expect(200)).body;
+      expect(me.listings.added).toEqual({ total: 2, manual: 2, parser: 0 });
+      const listingsByCode = (code: string) =>
+        me.listings.byStage.find(
+          (s: { stageId: number }) => s.stageId === stageId(boards.listings, code),
+        ).count;
+      expect([listingsByCode('new'), listingsByCode('call')]).toEqual([1, 1]);
+      expect(
+        me.clients.byStage.find(
+          (s: { stageId: number }) => s.stageId === stageId(boards.clients, 'call'),
+        ).count,
+      ).toBe(1);
+      expect(me.activity).toEqual({ calls: 3, comments: 1, changes: 3 });
+      expect(me.conversions[0]).toMatchObject({ key: 'contact_qualified', converted: 0, total: 1 });
+      expect(me.deals).toEqual({ closed: 0, commission: [], reward: null });
+      expect(me.overdue).toEqual([]);
+
+      await db.table('clients').update(c.id, { last_activity_at: '2026-01-01T00:00:00Z' });
+      const aged = (await dash.get(`/api/dashboard?${period()}`).expect(200)).body;
+      expect(aged.overdue).toEqual([
+        expect.objectContaining({ id: c.id, name: 'Дэш клиент', responsibleName: 'Дэш' }),
+      ]);
+
+      // Владелец смотрит срез по сотруднику — те же цифры.
+      const asOwner = (
+        await owner.get(`/api/dashboard?${period()}&scope=${dashUser.id}`).expect(200)
+      ).body;
+      expect(asOwner.activity).toEqual(me.activity);
+      await dash.get(`/api/dashboard?${period()}&scope=team`).expect(403);
+      await dash.get(`/api/dashboard?${period()}&scope=${dashUser.id}`).expect(403);
+
+      const team = (await owner.get(`/api/dashboard/team?${period()}`).expect(200)).body;
+      expect(team.find((r: { userId: number }) => r.userId === dashUser.id)).toMatchObject({
+        listingsAdded: 2,
+        calls: 3,
+        comments: 1,
+        changes: 3,
+        overdue: 1,
+      });
+      await dash.get(`/api/dashboard/team?${period()}`).expect(403);
+    });
+
+    it('shows team deals and commission, and partners only their reward', async () => {
+      const team = (await owner.get(`/api/dashboard?${period()}&scope=team`).expect(200)).body;
+      expect(team.deals.closed).toBeGreaterThanOrEqual(2);
+      expect(team.deals.commission).toEqual([
+        expect.objectContaining({ currency: 'USD', amount: expect.any(Number) }),
+      ]);
+
+      const partner = await signIn('dpa');
+      const mine = (await partner.get(`/api/dashboard?${period()}`).expect(200)).body;
+      expect(mine.deals).toEqual({
+        closed: 1,
+        commission: null,
+        reward: { accrued: 540, paid: 0 },
+      });
+    });
+
+    it('validates the period', async () => {
+      await owner
+        .get('/api/dashboard?from=2026-10-01T00:00:00Z&to=2026-09-01T00:00:00Z')
+        .expect(400);
+      await owner.get('/api/dashboard').expect(400);
+    });
+  });
+
   it('serves active dictionaries', async () => {
     const res = await owner.get('/api/dictionaries').expect(200);
     expect(res.body.district.map((d: { code: string }) => d.code)).toContain('kentron');

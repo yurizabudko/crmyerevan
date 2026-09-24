@@ -1,0 +1,80 @@
+/* Цвета графиков — роли, а не значения: светлая и тёмная тема задаются в одном месте.
+   Акцент — синий из проверенной палитры (прошёл валидатор для обеих поверхностей). */
+.root {
+  --viz-accent: #2a78d6;
+  --viz-track: #cde2fb;
+  --viz-grid: #e1e0d9;
+  --viz-critical: #d03b3b;
+}
+
+:global([data-mantine-color-scheme='dark']) .root {
+  --viz-accent: #3987e5;
+  --viz-track: #184f95;
+  --viz-grid: #2c2c2a;
+}
+
+.tile {
+  height: 100%;
+}
+
+.value {
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+/* Полосы по этапам: одна шкала, толщина ≤ 24px, скругление только у конца значения. */
+.barRow {
+  display: grid;
+  grid-template-columns: minmax(96px, 36%) 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  border-radius: var(--mantine-radius-sm);
+}
+
+.barRow:hover {
+  background: var(--mantine-color-default-hover);
+}
+
+.barTrack {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.bar {
+  height: 14px;
+  min-width: 2px;
+  background: var(--viz-accent);
+  border-radius: 0 4px 4px 0;
+}
+
+.barValue {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--mantine-font-size-sm);
+  color: var(--mantine-color-text);
+}
+
+/* Шкала конверсии: дорожка — светлая ступень того же синего. */
+.meter {
+  height: 10px;
+  border-radius: 5px;
+  background: var(--viz-track);
+  overflow: hidden;
+}
+
+.meterFill {
+  height: 100%;
+  background: var(--viz-accent);
+  border-radius: 5px;
+}
+
+.overdueDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--viz-critical);
+  flex: none;
+}

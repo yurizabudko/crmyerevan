@@ -9,3 +9,4 @@ export * from './dto.js';
 export * from './transitions.js';
 export * from './clients.js';
 export * from './table.js';
+export * from './dashboard.js';
