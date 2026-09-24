@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { COMMISSION_PERCENTS, LISTING_CLOSE_OUTCOMES } from './pipelines.js';
 import { ROLES } from './roles.js';
 
 /** Политика паролей (БТ-2.4.4): минимум 8 символов, есть буквы и цифры. */
@@ -91,3 +92,69 @@ export const ListingDraft = z.object({
     .or(z.literal('').transform(() => undefined)),
 });
 export type ListingDraft = z.infer<typeof ListingDraft>;
+
+const clearableText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .nullable()
+    .transform((v) => (v ? v : null));
+
+// null проверяется первым: z.coerce.number() превратил бы null в 0.
+const clearableNumber = (schema: z.ZodNumber) => z.null().or(z.coerce.number().pipe(schema));
+
+/** ISO-дата со смещением (например, из <input type="datetime-local"> после toISOString()). */
+const isoDateTime = z.iso.datetime({ offset: true, message: 'Некорректная дата и время' });
+
+/**
+ * Изменение карточки объявления. Передаются только изменённые поля; null — очистить.
+ * `version` — версия, которую видел пользователь (защита от одновременных правок).
+ */
+export const ListingPatch = z.object({
+  version: z.number().int().positive(),
+  title: z.string().trim().min(1, 'Укажите название').max(200).optional(),
+  description: clearableText(10_000).optional(),
+  price: clearableNumber(z.number().nonnegative()).optional(),
+  currency: z.enum(['USD', 'AMD', 'RUB', 'EUR']).optional(),
+  districtId: clearableNumber(z.number().int().positive()).optional(),
+  propertyTypeId: clearableNumber(z.number().int().positive()).optional(),
+  rooms: clearableNumber(z.number().int().min(0).max(50)).optional(),
+  floor: clearableNumber(z.number().int().min(-5).max(200)).optional(),
+  floorsTotal: clearableNumber(z.number().int().min(0).max(200)).optional(),
+  area: clearableNumber(z.number().nonnegative()).optional(),
+  address: clearableText(300).optional(),
+  ownerName: clearableText(100).optional(),
+  phone: clearableText(40).optional(),
+  contactsExtra: clearableText(1000).optional(),
+  sourceUrl: z.url('Некорректная ссылка').trim().max(1000).nullable().optional(),
+  commissionPercent: z
+    .null()
+    .or(
+      z.coerce.number().refine((v) => (COMMISSION_PERCENTS as readonly number[]).includes(v), {
+        message: `Комиссия: ${COMMISSION_PERCENTS.join(', ')} %`,
+      }),
+    )
+    .optional(),
+  meetingAt: isoDateTime.nullable().optional(),
+  responsibleId: clearableNumber(z.number().int().positive()).optional(),
+  partnerSourceId: clearableNumber(z.number().int().positive()).optional(),
+});
+export type ListingPatch = z.infer<typeof ListingPatch>;
+
+/** Перевод карточки объявления на другой этап (БТ-3.1). */
+export const ListingStageChange = z.object({
+  stageId: z.number().int().positive(),
+  version: z.number().int().positive(),
+  meetingAt: isoDateTime.optional(),
+  closeOutcome: z.enum(LISTING_CLOSE_OUTCOMES).optional(),
+  contactConfirmed: z.boolean().optional(),
+  actualityConfirmed: z.boolean().optional(),
+});
+export type ListingStageChange = z.infer<typeof ListingStageChange>;
+
+export const NewComment = z.object({
+  body: z.string().trim().min(1, 'Введите текст').max(5000),
+  kind: z.enum(['manual', 'call']).default('manual'),
+});
+export type NewComment = z.infer<typeof NewComment>;

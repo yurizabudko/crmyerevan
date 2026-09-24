@@ -14,3 +14,30 @@ export function formatDateTime(value: string | null): string {
     timeZone: 'Asia/Yerevan',
   }).format(new Date(value.replace(' ', 'T')));
 }
+
+/**
+ * Встречи и показы проходят в Ереване, поэтому дата вводится и показывается по Еревану,
+ * где бы ни находился пользователь (удалённые партнёры). В Армении нет перехода на летнее время.
+ */
+const YEREVAN_OFFSET = '+04:00';
+
+/** Значение <input type="datetime-local"> (время Еревана) → ISO UTC. */
+export function yerevanInputToIso(value: string): string {
+  return new Date(`${value}:00${YEREVAN_OFFSET}`).toISOString();
+}
+
+/** Дата из API → значение для <input type="datetime-local"> по времени Еревана. */
+export function isoToYerevanInput(value: string | null): string {
+  if (!value) return '';
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Yerevan',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(value.replace(' ', 'T')));
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;
+}

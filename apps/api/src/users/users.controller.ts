@@ -1,5 +1,10 @@
 import { Body, Controller, Get, Inject, Param, ParseIntPipe, Post, Put } from '@nestjs/common';
-import { CreateUserRequest, ResetPasswordRequest, SetPermissionsRequest } from '@crm/shared';
+import {
+  CreateUserRequest,
+  ResetPasswordRequest,
+  SetPermissionsRequest,
+  type UserBriefDto,
+} from '@crm/shared';
 import { CurrentUser } from '../auth/decorators.js';
 import { ZodPipe } from '../common/zod.pipe.js';
 import type { User } from './users.repository.js';
@@ -12,6 +17,11 @@ export class UsersController {
   @Get()
   list(@CurrentUser() actor: User): Promise<User[]> {
     return this.users.list(actor);
+  }
+
+  @Get('directory')
+  directory(@CurrentUser() actor: User): Promise<UserBriefDto[]> {
+    return this.users.directory(actor);
   }
 
   @Post()

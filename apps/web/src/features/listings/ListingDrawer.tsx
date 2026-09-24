@@ -1,38 +1,53 @@
-import type { CommentDto } from '@crm/shared';
+import type { CommentDto, ListingDetailsDto, StageDto, UserDto } from '@crm/shared';
 import {
   Alert,
   Anchor,
   Badge,
+  Button,
   Divider,
   Drawer,
   Group,
   Loader,
+  Menu,
+  SegmentedControl,
   SimpleGrid,
   Stack,
   Text,
+  Textarea,
   Timeline,
   Title,
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
-import type { ReactNode } from 'react';
+import { IconArrowRight, IconPencil, IconPhoneCall } from '@tabler/icons-react';
+import { useState, type ReactNode } from 'react';
+import { useMe } from '../../auth/useAuth';
 import { formatDateTime, formatPrice } from '../../lib/format';
-import { useDictionaries, useListing } from './api';
+import {
+  useAddComment,
+  useDictionaries,
+  useListing,
+  useListingBoard,
+  useUserDirectory,
+} from './api';
+import { EditListingModal } from './EditListingModal';
+import type { PendingMove } from './StageChangeModal';
 
-/** Карточка объявления (п. 3.4). Редактирование и смена этапа — следующим шагом этапа 2. */
-export function ListingDrawer({
-  listingId,
-  onClose,
-}: {
+const OUTCOME = { success: 'сделка', lost: 'объект потерян' } as const;
+
+interface Props {
   listingId: number | null;
   onClose: () => void;
-}) {
-  const isMobile = useMediaQuery('(max-width: 48em)');
-  const listing = useListing(listingId);
-  const dicts = useDictionaries();
-  const l = listing.data;
+  onMove: (move: PendingMove) => void;
+}
 
-  const name = (kind: 'district' | 'property_type', id: number | null) =>
-    dicts.data?.[kind].find((d) => d.id === id)?.name ?? null;
+/** Карточка объявления (п. 3.4): поля, смена этапа, правка, комментарии и история. */
+export function ListingDrawer({ listingId, onClose, onMove }: Props) {
+  const isMobile = useMediaQuery('(max-width: 48em)');
+  const { data: me } = useMe();
+  const listing = useListing(listingId);
+  const board = useListingBoard();
+  const [editing, setEditing] = useState(false);
+  const l = listing.data;
 
   return (
     <Drawer
@@ -44,7 +59,7 @@ export function ListingDrawer({
     >
       {listing.isPending && <Loader />}
       {listing.error && <Alert color="red">{listing.error.message}</Alert>}
-      {l && (
+      {l && me && (
         <Stack gap="md">
           <Stack gap={4}>
             <Title order={3}>{l.title}</Title>
@@ -56,39 +71,158 @@ export function ListingDrawer({
             </Group>
           </Stack>
 
-          <SimpleGrid cols={2} spacing="xs">
-            <Field label="Район">{name('district', l.districtId)}</Field>
-            <Field label="Тип">{name('property_type', l.propertyTypeId)}</Field>
-            <Field label="Комнат">{l.rooms}</Field>
-            <Field label="Площадь">{l.area !== null ? `${l.area} м²` : null}</Field>
-            <Field label="Этаж">
-              {l.floor !== null ? `${l.floor}${l.floorsTotal ? ` из ${l.floorsTotal}` : ''}` : null}
-            </Field>
-            <Field label="Адрес">{l.address}</Field>
-            <Field label="Собственник">{l.ownerName}</Field>
-            <Field label="Телефон">
-              {l.phone && <Anchor href={`tel:${l.phone.replace(/[^\d+]/g, '')}`}>{l.phone}</Anchor>}
-            </Field>
-            <Field label="Другие контакты">{l.contactsExtra}</Field>
-            <Field label="Создано">{formatDateTime(l.createdAt)}</Field>
-          </SimpleGrid>
+          <Group gap="xs">
+            <StageMenu listing={l} stages={board.data?.stages ?? []} onMove={onMove} />
+            <Button
+              variant="default"
+              leftSection={<IconPencil size={16} />}
+              onClick={() => setEditing(true)}
+            >
+              Изменить
+            </Button>
+          </Group>
 
-          {l.sourceUrl && (
-            <Anchor href={l.sourceUrl} target="_blank" rel="noreferrer" size="sm">
-              Открыть на сайте-источнике
-            </Anchor>
-          )}
-          {l.description && (
-            <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
-              {l.description}
-            </Text>
-          )}
+          <Details listing={l} me={me} />
 
-          <Divider label="История" labelPosition="left" />
+          <Divider label="Комментарии и история" labelPosition="left" />
+          <CommentBox listingId={l.id} />
           <History comments={l.comments} />
+
+          <EditListingModal
+            listing={l}
+            me={me}
+            opened={editing}
+            onClose={() => setEditing(false)}
+          />
         </Stack>
       )}
     </Drawer>
+  );
+}
+
+/** Смена этапа без перетаскивания — основной способ на телефоне. */
+function StageMenu({
+  listing,
+  stages,
+  onMove,
+}: {
+  listing: ListingDetailsDto;
+  stages: StageDto[];
+  onMove: (move: PendingMove) => void;
+}) {
+  const current = stages.find((s) => s.id === listing.stageId);
+  return (
+    <Menu position="bottom-start" withinPortal>
+      <Menu.Target>
+        <Button rightSection={<IconArrowRight size={16} />}>{current?.name ?? 'Этап'}</Button>
+      </Menu.Target>
+      <Menu.Dropdown>
+        <Menu.Label>Перевести на этап</Menu.Label>
+        {stages
+          .filter((s) => s.id !== listing.stageId)
+          .map((to) => (
+            <Menu.Item key={to.id} onClick={() => onMove({ listing, from: current, to })}>
+              {to.name}
+            </Menu.Item>
+          ))}
+      </Menu.Dropdown>
+    </Menu>
+  );
+}
+
+function Details({ listing: l, me }: { listing: ListingDetailsDto; me: UserDto }) {
+  const dicts = useDictionaries();
+  const directory = useUserDirectory(me.role !== 'partner');
+  const dict = (kind: 'district' | 'property_type', id: number | null) =>
+    dicts.data?.[kind].find((d) => d.id === id)?.name ?? null;
+  const person = (id: number | null) => {
+    if (id === null) return null;
+    if (id === me.id) return me.displayName;
+    return directory.data?.find((u) => u.id === id)?.displayName ?? `#${id}`;
+  };
+
+  return (
+    <>
+      <SimpleGrid cols={2} spacing="xs">
+        <Field label="Район">{dict('district', l.districtId)}</Field>
+        <Field label="Тип">{dict('property_type', l.propertyTypeId)}</Field>
+        <Field label="Комнат">{l.rooms}</Field>
+        <Field label="Площадь">{l.area !== null ? `${l.area} м²` : null}</Field>
+        <Field label="Этаж">
+          {l.floor !== null ? `${l.floor}${l.floorsTotal ? ` из ${l.floorsTotal}` : ''}` : null}
+        </Field>
+        <Field label="Адрес">{l.address}</Field>
+        <Field label="Собственник">{l.ownerName}</Field>
+        <Field label="Телефон">
+          {l.phone && <Anchor href={`tel:${l.phone.replace(/[^\d+]/g, '')}`}>{l.phone}</Anchor>}
+        </Field>
+        <Field label="Другие контакты">{l.contactsExtra}</Field>
+        <Field label="Встреча">{l.meetingAt ? formatDateTime(l.meetingAt) : null}</Field>
+        <Field label="Комиссия">
+          {l.commissionPercent !== null ? `${l.commissionPercent}%` : null}
+        </Field>
+        <Field label="Ответственный">{person(l.responsibleId) ?? 'общий пул'}</Field>
+        <Field label="Партнёр-источник">{person(l.partnerSourceId)}</Field>
+        {l.closeOutcome && (
+          <Field label="Исход">{OUTCOME[l.closeOutcome as keyof typeof OUTCOME]}</Field>
+        )}
+        <Field label="Создано">{formatDateTime(l.createdAt)}</Field>
+      </SimpleGrid>
+      {l.sourceUrl && (
+        <Anchor href={l.sourceUrl} target="_blank" rel="noreferrer" size="sm">
+          Открыть на сайте-источнике
+        </Anchor>
+      )}
+      {l.description && (
+        <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
+          {l.description}
+        </Text>
+      )}
+    </>
+  );
+}
+
+function CommentBox({ listingId }: { listingId: number }) {
+  const add = useAddComment();
+  const [body, setBody] = useState('');
+  const [kind, setKind] = useState<'manual' | 'call'>('manual');
+
+  const submit = () =>
+    add.mutate(
+      { id: listingId, comment: { body, kind } },
+      {
+        onSuccess: () => {
+          setBody('');
+          setKind('manual');
+        },
+      },
+    );
+
+  return (
+    <Stack gap="xs">
+      <Textarea
+        placeholder={kind === 'call' ? 'Итог звонка…' : 'Комментарий…'}
+        autosize
+        minRows={2}
+        value={body}
+        onChange={(e) => setBody(e.currentTarget.value)}
+        error={add.error?.message}
+      />
+      <Group justify="space-between">
+        <SegmentedControl
+          size="xs"
+          value={kind}
+          onChange={(v) => setKind(v as 'manual' | 'call')}
+          data={[
+            { value: 'manual', label: 'Комментарий' },
+            { value: 'call', label: 'Звонок' },
+          ]}
+        />
+        <Button size="xs" onClick={submit} disabled={!body.trim()} loading={add.isPending}>
+          Добавить
+        </Button>
+      </Group>
+    </Stack>
   );
 }
 
@@ -112,17 +246,22 @@ function History({ comments }: { comments: CommentDto[] }) {
     );
   }
   return (
-    <Timeline bulletSize={10} lineWidth={2}>
+    <Timeline bulletSize={18} lineWidth={2}>
       {comments.map((c) => (
-        <Timeline.Item key={c.id} color={c.kind === 'system' ? 'gray' : 'indigo'}>
-          <Text size="sm">{c.body}</Text>
-          {c.field && (
-            <Text size="xs" c="dimmed">
-              {c.field}: {c.oldValue ?? '—'} → {c.newValue ?? '—'}
-            </Text>
-          )}
+        <Timeline.Item
+          key={c.id}
+          color={c.kind === 'system' ? 'gray' : c.kind === 'call' ? 'teal' : 'indigo'}
+          bullet={c.kind === 'call' ? <IconPhoneCall size={11} /> : undefined}
+        >
+          <Text
+            size="sm"
+            style={{ whiteSpace: 'pre-wrap' }}
+            c={c.kind === 'system' ? 'dimmed' : undefined}
+          >
+            {c.body}
+          </Text>
           <Text size="xs" c="dimmed">
-            {formatDateTime(c.createdAt)}
+            {c.authorName ?? 'Система'} · {formatDateTime(c.createdAt)}
           </Text>
         </Timeline.Item>
       ))}

@@ -59,6 +59,7 @@ export interface CommentDto {
   id: number;
   kind: CommentKind;
   authorId: number | null;
+  authorName: string | null;
   body: string | null;
   field: string | null;
   oldValue: string | null;
@@ -83,6 +84,14 @@ export interface DictionaryItemDto {
 
 export type DictionariesDto = Record<DictionaryKind, DictionaryItemDto[]>;
 
+/** Краткие данные пользователя для списков выбора и подписей. */
+export interface UserBriefDto {
+  id: number;
+  displayName: string;
+  role: UserDto['role'];
+  status: UserDto['status'];
+}
+
 /** Тело ошибки API. */
 export interface ApiErrorBody {
   statusCode?: number;
@@ -90,4 +99,5 @@ export interface ApiErrorBody {
   code?: string;
   issues?: { path: string; message: string }[];
   existingId?: number;
+  errors?: string[];
 }

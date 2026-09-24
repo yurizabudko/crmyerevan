@@ -1,5 +1,17 @@
 import type { DictionariesDto, ListingDto, StageDto } from '@crm/shared';
 import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  TouchSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
   Alert,
   Badge,
   Box,
@@ -14,18 +26,39 @@ import {
 } from '@mantine/core';
 import { IconPlus } from '@tabler/icons-react';
 import { useState } from 'react';
+import { useMe } from '../../auth/useAuth';
 import { formatPrice } from '../../lib/format';
 import { AddListingModal } from './AddListingModal';
 import { useDictionaries, useListingBoard } from './api';
 import { ListingDrawer } from './ListingDrawer';
+import { StageChangeModal, type PendingMove } from './StageChangeModal';
 import classes from './board.module.css';
 
-/** Воронка объявлений: колонки этапов, свежие изменения сверху (БТ-3.3.1). */
+/** Воронка объявлений: колонки этапов, свежие изменения сверху (БТ-3.3.1), перетаскивание. */
 export function ListingsBoardPage() {
+  const { data: me } = useMe();
   const board = useListingBoard();
   const dicts = useDictionaries();
   const [adding, setAdding] = useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
+  const [move, setMove] = useState<PendingMove | null>(null);
+  const [dragged, setDragged] = useState<ListingDto | null>(null);
+
+  const sensors = useSensors(
+    // Небольшой порог, чтобы клик по карточке не превращался в перетаскивание.
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    // На телефоне — долгое нажатие, иначе нельзя прокручивать колонки.
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
+    useSensor(KeyboardSensor),
+  );
+
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
+    setDragged(null);
+    const card = board.data?.cards.find((c) => c.id === active.id);
+    const to = board.data?.stages.find((s) => `stage-${s.id}` === over?.id);
+    if (!card || !to || card.stageId === to.id) return;
+    setMove({ listing: card, from: board.data?.stages.find((s) => s.id === card.stageId), to });
+  };
 
   return (
     <Stack gap="md">
@@ -39,23 +72,36 @@ export function ListingsBoardPage() {
       {board.isPending && <Loader />}
       {board.error && <Alert color="red">{board.error.message}</Alert>}
       {board.data && (
-        <ScrollArea type="auto" offsetScrollbars>
-          <Group align="flex-start" wrap="nowrap" gap="sm" className={classes.board}>
-            {board.data.stages.map((stage) => (
-              <StageColumn
-                key={stage.id}
-                stage={stage}
-                cards={board.data.cards.filter((c) => c.stageId === stage.id)}
-                dicts={dicts.data}
-                onOpen={setOpenId}
-              />
-            ))}
-          </Group>
-        </ScrollArea>
+        <DndContext
+          sensors={sensors}
+          onDragStart={({ active }) =>
+            setDragged(board.data.cards.find((c) => c.id === active.id) ?? null)
+          }
+          onDragCancel={() => setDragged(null)}
+          onDragEnd={onDragEnd}
+        >
+          <ScrollArea type="auto" offsetScrollbars>
+            <Group align="flex-start" wrap="nowrap" gap="sm" className={classes.board}>
+              {board.data.stages.map((stage) => (
+                <StageColumn
+                  key={stage.id}
+                  stage={stage}
+                  cards={board.data.cards.filter((c) => c.stageId === stage.id)}
+                  dicts={dicts.data}
+                  onOpen={setOpenId}
+                />
+              ))}
+            </Group>
+          </ScrollArea>
+          <DragOverlay>
+            {dragged && <CardBody card={dragged} dicts={dicts.data} className={classes.overlay} />}
+          </DragOverlay>
+        </DndContext>
       )}
 
       <AddListingModal opened={adding} onClose={() => setAdding(false)} onOpenListing={setOpenId} />
-      <ListingDrawer listingId={openId} onClose={() => setOpenId(null)} />
+      <ListingDrawer listingId={openId} onClose={() => setOpenId(null)} onMove={setMove} />
+      {me && <StageChangeModal move={move} me={me} onClose={() => setMove(null)} />}
     </Stack>
   );
 }
@@ -68,8 +114,9 @@ interface ColumnProps {
 }
 
 function StageColumn({ stage, cards, dicts, onOpen }: ColumnProps) {
+  const { setNodeRef, isOver } = useDroppable({ id: `stage-${stage.id}` });
   return (
-    <Box className={classes.column}>
+    <Box ref={setNodeRef} className={classes.column} data-over={isOver || undefined}>
       <Group justify="space-between" mb="xs" px={4}>
         <Text fw={600} size="sm">
           {stage.name}
@@ -80,7 +127,7 @@ function StageColumn({ stage, cards, dicts, onOpen }: ColumnProps) {
       </Group>
       <Stack gap="xs">
         {cards.map((card) => (
-          <ListingCard key={card.id} card={card} dicts={dicts} onOpen={onOpen} />
+          <DraggableCard key={card.id} card={card} dicts={dicts} onOpen={onOpen} />
         ))}
         {cards.length === 0 && (
           <Text size="xs" c="dimmed" ta="center" py="md">
@@ -92,7 +139,7 @@ function StageColumn({ stage, cards, dicts, onOpen }: ColumnProps) {
   );
 }
 
-function ListingCard({
+function DraggableCard({
   card,
   dicts,
   onOpen,
@@ -100,6 +147,30 @@ function ListingCard({
   card: ListingDto;
   dicts: DictionariesDto | undefined;
   onOpen: (id: number) => void;
+}) {
+  const { setNodeRef, attributes, listeners, isDragging } = useDraggable({ id: card.id });
+  return (
+    <div ref={setNodeRef} {...attributes} {...listeners} style={{ opacity: isDragging ? 0.4 : 1 }}>
+      <CardBody
+        card={card}
+        dicts={dicts}
+        className={classes.card}
+        onClick={() => onOpen(card.id)}
+      />
+    </div>
+  );
+}
+
+function CardBody({
+  card,
+  dicts,
+  className,
+  onClick,
+}: {
+  card: ListingDto;
+  dicts: DictionariesDto | undefined;
+  className?: string;
+  onClick?: () => void;
 }) {
   const district = dicts?.district.find((d) => d.id === card.districtId)?.name;
   const facts = [
@@ -113,11 +184,9 @@ function ListingCard({
       withBorder
       padding="sm"
       radius="md"
-      className={classes.card}
-      onClick={() => onOpen(card.id)}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => e.key === 'Enter' && onOpen(card.id)}
+      className={className}
+      onClick={onClick}
+      aria-label={card.title}
     >
       <Text fw={500} size="sm" lineClamp={2}>
         {card.title}
@@ -134,6 +203,11 @@ function ListingCard({
         <Badge size="xs" variant="light" color={card.source === 'parser' ? 'blue' : 'gray'}>
           {card.source === 'parser' ? 'авто' : 'вручную'}
         </Badge>
+        {card.responsibleId === null && (
+          <Badge size="xs" variant="light" color="yellow">
+            пул
+          </Badge>
+        )}
       </Group>
     </Card>
   );

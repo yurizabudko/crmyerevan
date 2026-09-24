@@ -27,3 +27,14 @@
 .card:focus-visible {
   box-shadow: var(--mantine-shadow-sm);
 }
+
+.column[data-over] {
+  outline: 2px dashed var(--mantine-color-indigo-4);
+  outline-offset: -2px;
+}
+
+.overlay {
+  cursor: grabbing;
+  box-shadow: var(--mantine-shadow-lg);
+  transform: rotate(2deg);
+}

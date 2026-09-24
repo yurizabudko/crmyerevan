@@ -255,6 +255,199 @@ describe('CRM API', () => {
     await anon.post('/api/auth/login').send({ login: 'anna', password: PASSWORD }).expect(429);
   });
 
+  describe('listing workflow', () => {
+    type Agent = ReturnType<typeof request.agent>;
+    let emp: Agent;
+    let p1: Agent;
+    let p2: Agent;
+    let stageId: Record<string, number>;
+
+    const load = async (agent: Agent, id: number) =>
+      (await agent.get(`/api/listings/${id}`).expect(200)).body;
+    const move = (agent: Agent, id: number, version: number, code: string, extra = {}) =>
+      agent.post(`/api/listings/${id}/stage`).send({ stageId: stageId[code], version, ...extra });
+
+    it('prepares users', async () => {
+      const board = await owner.get('/api/listings').expect(200);
+      stageId = Object.fromEntries(
+        board.body.stages.map((s: { code: string; id: number }) => [s.code, s.id]),
+      );
+      for (const [login, role] of [
+        ['emp', 'employee'],
+        ['prt1', 'partner'],
+        ['prt2', 'partner'],
+      ]) {
+        await owner
+          .post('/api/users')
+          .send({ login, displayName: login, role, temporaryPassword: 'Temp12345' })
+          .expect(201);
+      }
+      [emp, p1, p2] = await Promise.all([signIn('emp'), signIn('prt1'), signIn('prt2')]);
+    });
+
+    it('enforces transition rules and records history', async () => {
+      const { body: card } = await emp
+        .post('/api/listings')
+        .send({ title: 'Воркфлоу: этапы' })
+        .expect(201);
+      await move(emp, card.id, 1, 'call').expect(200);
+
+      const blocked = await move(emp, card.id, 2, 'meeting').expect(400);
+      expect(blocked.body.errors).toEqual([
+        'Подтвердите, что контакт с собственником состоялся',
+        'Подтвердите, что собственник подтвердил актуальность объекта',
+        'Укажите дату и время встречи',
+      ]);
+
+      const meetingAt = '2026-10-01T10:30:00.000Z';
+      const moved = await move(emp, card.id, 2, 'meeting', {
+        contactConfirmed: true,
+        actualityConfirmed: true,
+        meetingAt,
+      }).expect(200);
+      expect(moved.body).toMatchObject({ stageId: stageId.meeting, version: 3 });
+      expect(new Date(moved.body.meetingAt.replace(' ', 'T')).toISOString()).toBe(meetingAt);
+      const bodies = moved.body.comments.map((c: { body: string }) => c.body);
+      expect(bodies).toContain('Этап: Звонок → Назначена встреча');
+      expect(bodies).toContain('Контакт с собственником состоялся');
+      expect(bodies).toContain('Встреча: — → 01.10.2026, 14:30');
+
+      await emp.patch(`/api/listings/${card.id}`).send({ version: 3, meetingAt: null }).expect(400);
+      await move(emp, card.id, 3, 'closed').expect(400);
+      const closed = await move(emp, card.id, 3, 'closed', { closeOutcome: 'lost' }).expect(200);
+      expect(closed.body.closeOutcome).toBe('lost');
+      await move(emp, card.id, 4, 'available').expect(400);
+      const reopened = await move(owner, card.id, 4, 'available').expect(200);
+      expect(reopened.body.closeOutcome).toBeNull();
+
+      const transitions = await db
+        .table('stage_transitions')
+        .listAll({ where: w.eq('entity_id', card.id) });
+      expect(transitions).toHaveLength(4);
+    });
+
+    it('lets exactly one partner claim a pool card', async () => {
+      const { body: card } = await owner
+        .post('/api/listings')
+        .send({ title: 'Воркфлоу: захват' })
+        .expect(201);
+      const [a, b] = await Promise.all([
+        move(p1, card.id, 1, 'call'),
+        move(p2, card.id, 1, 'call'),
+      ]);
+      const statuses = [a.status, b.status].sort();
+      expect(statuses).toEqual([200, 409]);
+      const loser = a.status === 409 ? a : b;
+      expect(['ALREADY_CLAIMED', 'VERSION_CONFLICT']).toContain(loser.body.code);
+
+      const winner = a.status === 200 ? p1 : p2;
+      const other = winner === p1 ? p2 : p1;
+      const claimed = await load(winner, card.id);
+      expect(claimed.responsibleId).toBe(claimed.partnerSourceId);
+      expect(claimed.responsibleId).not.toBeNull();
+
+      const retry = await move(other, card.id, 2, 'available', { contactConfirmed: true });
+      expect(retry.status).toBe(409);
+      expect(retry.body.code).toBe('ALREADY_CLAIMED');
+      const otherBoard = await other.get('/api/listings').expect(200);
+      expect(otherBoard.body.cards.map((c: { id: number }) => c.id)).not.toContain(card.id);
+
+      // Партнёр не выходит за первые три этапа.
+      await move(winner, card.id, 2, 'meeting', {
+        contactConfirmed: true,
+        actualityConfirmed: true,
+        meetingAt: '2026-10-02T09:00:00Z',
+      }).expect(400);
+    });
+
+    it('restricts partner edits and logs field changes', async () => {
+      const { body: card } = await p1
+        .post('/api/listings')
+        .send({ title: 'Воркфлоу: правки', price: 50000 })
+        .expect(201);
+
+      const denied = await p1
+        .patch(`/api/listings/${card.id}`)
+        .send({ version: 1, price: 60000 })
+        .expect(403);
+      expect(denied.body.message).toMatch(/Цена/);
+
+      const edited = await p1
+        .patch(`/api/listings/${card.id}`)
+        .send({ version: 1, phone: '091 000 111', commissionPercent: 25 })
+        .expect(200);
+      expect(edited.body).toMatchObject({
+        phone: '091 000 111',
+        commissionPercent: 25,
+        version: 2,
+      });
+      // Системные записи партнёру не видны…
+      expect(edited.body.comments).toEqual([]);
+      // …а сотрудник видит каждое изменение с автором.
+      const seen = await load(owner, card.id);
+      const phoneEntry = seen.comments.find((c: { field: string }) => c.field === 'phone');
+      expect(phoneEntry).toMatchObject({
+        body: 'Телефон: — → 091 000 111',
+        authorName: 'prt1',
+      });
+
+      await owner
+        .patch(`/api/listings/${card.id}`)
+        .send({ version: 1, title: 'Старая версия' })
+        .expect(409);
+      const districts = (await owner.get('/api/dictionaries').expect(200)).body.district;
+      const kentron = districts.find((d: { code: string }) => d.code === 'kentron');
+      const updated = await owner
+        .patch(`/api/listings/${card.id}`)
+        .send({ version: 2, districtId: kentron.id, price: null })
+        .expect(200);
+      expect(updated.body).toMatchObject({ districtId: kentron.id, price: null, version: 3 });
+      const bodies = updated.body.comments.map((c: { body: string }) => c.body);
+      expect(bodies).toContain('Район: — → Кентрон');
+      expect(bodies).toContain('Цена: 50000 → —');
+
+      // Пустая правка не создаёт записей и не меняет версию.
+      const noop = await owner
+        .patch(`/api/listings/${card.id}`)
+        .send({ version: 3, districtId: kentron.id })
+        .expect(200);
+      expect(noop.body.version).toBe(3);
+
+      await emp
+        .patch(`/api/listings/${card.id}`)
+        .send({ version: 3, partnerSourceId: card.partnerSourceId })
+        .expect(403);
+    });
+
+    it('adds comments and call notes', async () => {
+      const { body: card } = await emp
+        .post('/api/listings')
+        .send({ title: 'Воркфлоу: комментарии' })
+        .expect(201);
+      const res = await emp
+        .post(`/api/listings/${card.id}/comments`)
+        .send({ kind: 'call', body: 'Не взял трубку' })
+        .expect(201);
+      expect(res.body.comments[0]).toMatchObject({
+        kind: 'call',
+        body: 'Не взял трубку',
+        authorName: 'emp',
+      });
+      await emp.post(`/api/listings/${card.id}/comments`).send({ body: '  ' }).expect(400);
+    });
+
+    it('serves the user directory to staff only', async () => {
+      const dir = await emp.get('/api/users/directory').expect(200);
+      expect(dir.body[0]).toEqual({
+        id: expect.any(Number),
+        displayName: expect.any(String),
+        role: expect.any(String),
+        status: expect.any(String),
+      });
+      await p1.get('/api/users/directory').expect(403);
+    });
+  });
+
   it('serves active dictionaries', async () => {
     const res = await owner.get('/api/dictionaries').expect(200);
     expect(res.body.district.map((d: { code: string }) => d.code)).toContain('kentron');

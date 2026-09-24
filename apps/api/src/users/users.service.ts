@@ -12,6 +12,7 @@ import {
   type CreateUserRequest,
   type ResetPasswordRequest,
   type SetPermissionsRequest,
+  type UserBriefDto,
 } from '@crm/shared';
 import type { Redis } from 'ioredis';
 import { AuditService } from '../audit/audit.service.js';
@@ -36,6 +37,13 @@ export class UsersService {
   list(actor: User): Promise<User[]> {
     this.assert(can.manageUsers(actor));
     return this.users.list();
+  }
+
+  /** Список для выбора ответственного и подписей. Партнёрам не выдаётся (2.2, 8.4). */
+  async directory(actor: User): Promise<UserBriefDto[]> {
+    this.assert(actor.role !== 'partner');
+    const users = await this.users.list();
+    return users.map(({ id, displayName, role, status }) => ({ id, displayName, role, status }));
   }
 
   async create(actor: User, input: CreateUserRequest): Promise<User> {
