@@ -1,0 +1,113 @@
+name: crmyerevan
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '127.0.0.1:6379:6379'
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  nocodb:
+    image: nocodb/nocodb:2026.09.0
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NC_DB: pg://postgres:5432?u=${POSTGRES_USER}&p=${POSTGRES_PASSWORD}&d=${POSTGRES_DB}
+      NC_AUTH_JWT_SECRET: ${NC_AUTH_JWT_SECRET}
+      NC_ADMIN_EMAIL: ${NC_ADMIN_EMAIL}
+      NC_ADMIN_PASSWORD: ${NC_ADMIN_PASSWORD}
+      NC_DISABLE_TELE: 'true'
+      NC_INVITE_ONLY_SIGNUP: 'true'
+    ports:
+      # Интерфейс NocoDB доступен только локально (для техадмина через SSH-туннель)
+      - '127.0.0.1:${NC_PORT}:8080'
+    volumes:
+      - ncdata:/usr/app/data
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:8080/api/v1/health || exit 1']
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  # --- Приложение: `docker compose --profile app up -d --build` ---
+
+  migrate:
+    profiles: ['app']
+    build: { context: ., target: migrate }
+    depends_on:
+      nocodb:
+        condition: service_healthy
+    environment:
+      NOCODB_URL: http://nocodb:8080
+      NOCODB_API_TOKEN: ${NOCODB_API_TOKEN}
+      NOCODB_BASE_TITLE: ${NOCODB_BASE_TITLE}
+      NC_ADMIN_EMAIL: ${NC_ADMIN_EMAIL}
+      NC_ADMIN_PASSWORD: ${NC_ADMIN_PASSWORD}
+
+  api:
+    profiles: ['app']
+    build: { context: ., target: api }
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      NOCODB_URL: http://nocodb:8080
+      NOCODB_API_TOKEN: ${NOCODB_API_TOKEN}
+      NOCODB_BASE_TITLE: ${NOCODB_BASE_TITLE}
+      REDIS_URL: redis://redis:6379
+      SESSION_SECRET: ${SESSION_SECRET}
+      API_PORT: 3000
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:3000/api/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  web:
+    profiles: ['app']
+    build: { context: ., target: web }
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    ports:
+      - '${WEB_PORT:-80}:80'
+      - '443:443'
+    volumes:
+      - caddydata:/data
+
+volumes:
+  pgdata:
+  redisdata:
+  ncdata:
+  caddydata:

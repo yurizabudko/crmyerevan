@@ -1,0 +1,24 @@
+{
+	# Для продакшена замените :80 на домен — Caddy сам выпустит TLS-сертификат.
+	admin off
+}
+
+{$SITE_ADDRESS::80} {
+	encode gzip zstd
+
+	handle /api/* {
+		reverse_proxy api:3000
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options DENY
+	}
+}
