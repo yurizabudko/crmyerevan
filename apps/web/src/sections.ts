@@ -25,9 +25,9 @@ export const SECTIONS: Section[] = [
   { path: '/table', title: 'Таблица', icon: IconTable, visible: always },
   { path: '/dashboard', title: 'Дашборд', icon: IconChartBar, visible: always },
   {
-    path: '/admin/users',
+    path: '/admin',
     title: 'Администрирование',
     icon: IconSettings,
-    visible: (u) => can.manageUsers(u),
+    visible: (u) => can.openAdmin(u),
   },
 ];

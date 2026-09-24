@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AdminModule } from './admin/admin.module.js';
 import { AuditModule } from './audit/audit.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { ClientsModule } from './clients/clients.module.js';
@@ -23,6 +24,7 @@ import { UsersModule } from './users/users.module.js';
     ClientsModule,
     TableModule,
     DashboardModule,
+    AdminModule,
   ],
   controllers: [HealthController, DictionariesController, PrefsController],
 })

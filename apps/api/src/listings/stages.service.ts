@@ -32,6 +32,11 @@ export class StagesService {
     return stages;
   }
 
+  /** Сброс кэша после правок этапов в администрировании. */
+  invalidate(): void {
+    this.cache.clear();
+  }
+
   async byCode(pipeline: Pipeline, code: string): Promise<Stage> {
     const stage = (await this.list(pipeline)).find((s) => s.code === code);
     if (!stage) {

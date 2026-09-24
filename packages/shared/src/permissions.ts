@@ -29,6 +29,12 @@ export const can = {
   manageDictionaries: (a: Actor) => isOwner(a) || (isEmployee(a) && a.perms.manageDictionaries),
   exportCsv: (a: Actor) => a.role !== 'partner',
   viewTeamDashboard: isOwner,
+  /** Журнал аудита и настройки парсера — только Владелец (7). */
+  viewAudit: isOwner,
+  manageParser: isOwner,
+  /** Доступ к разделу «Администрирование» хоть с какой-то вкладкой. */
+  openAdmin: (a: Actor) =>
+    isOwner(a) || (isEmployee(a) && (a.perms.grantAccess || a.perms.manageDictionaries)),
   confirmPayout: isOwner,
   /**
    * Фото объявления: сотрудники — всегда, партнёр — в карточках, которые создал сам

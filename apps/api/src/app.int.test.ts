@@ -1163,6 +1163,182 @@ describe('CRM API', () => {
     });
   });
 
+  describe('administration', () => {
+    type Agent = ReturnType<typeof request.agent>;
+    let plain: Agent;
+    let editor: Agent;
+
+    it('prepares employees with and without the dictionaries right', async () => {
+      await owner
+        .post('/api/users')
+        .send({
+          login: 'adm_plain',
+          displayName: 'plain',
+          role: 'employee',
+          temporaryPassword: 'Temp12345',
+        })
+        .expect(201);
+      await owner
+        .post('/api/users')
+        .send({
+          login: 'adm_editor',
+          displayName: 'editor',
+          role: 'employee',
+          temporaryPassword: 'Temp12345',
+          perms: { grantAccess: false, deleteCards: false, manageDictionaries: true },
+        })
+        .expect(201);
+      [plain, editor] = await Promise.all([signIn('adm_plain'), signIn('adm_editor')]);
+    });
+
+    it('adds, renames, reorders and deletes custom stages', async () => {
+      await plain
+        .post('/api/admin/stages')
+        .send({ pipeline: 'listings', name: 'Проверка' })
+        .expect(403);
+      const added = await editor
+        .post('/api/admin/stages')
+        .send({ pipeline: 'listings', name: 'Проверка документов' })
+        .expect(201);
+      const codes = added.body.map((s: { code: string }) => s.code);
+      // Новый этап встаёт перед терминальным «Закрыт объект».
+      expect(codes.slice(-2)[1]).toBe('closed');
+      expect(codes.slice(-2)[0]).toMatch(/^custom_/);
+      await editor
+        .post('/api/admin/stages')
+        .send({ pipeline: 'listings', name: 'проверка документов' })
+        .expect(409);
+
+      const custom = added.body.find((s: { code: string }) => s.code.startsWith('custom_'));
+      const renamed = await editor
+        .patch(`/api/admin/stages/${custom.id}`)
+        .send({ name: 'Юр. проверка' })
+        .expect(200);
+      expect(renamed.body.name).toBe('Юр. проверка');
+      const board = await owner.get('/api/listings').expect(200);
+      expect(board.body.stages.map((s: { name: string }) => s.name)).toContain('Юр. проверка');
+
+      const ids = added.body.map((s: { id: number }) => s.id);
+      await editor
+        .put('/api/admin/stages/order')
+        .send({ pipeline: 'listings', ids: ids.slice(1) })
+        .expect(400);
+      const reordered = await editor
+        .put('/api/admin/stages/order')
+        .send({
+          pipeline: 'listings',
+          ids: [custom.id, ...ids.filter((x: number) => x !== custom.id)],
+        })
+        .expect(200);
+      expect(reordered.body[0].id).toBe(custom.id);
+
+      // Карточку можно перевести на пользовательский этап — правил у него нет.
+      const { body: card } = await owner
+        .post('/api/listings')
+        .send({ title: 'На юр. проверке' })
+        .expect(201);
+      await owner
+        .post(`/api/listings/${card.id}/stage`)
+        .send({ stageId: custom.id, version: 1 })
+        .expect(200);
+      const busy = await editor.delete(`/api/admin/stages/${custom.id}`).expect(409);
+      expect(busy.body.message).toMatch(/перенесите/);
+      const newStage = reordered.body.find((s: { code: string }) => s.code === 'new');
+      await editor.delete(`/api/admin/stages/${newStage.id}`).expect(400);
+
+      await owner
+        .post(`/api/listings/${card.id}/stage`)
+        .send({ stageId: newStage.id, version: 2 })
+        .expect(200);
+      await editor.delete(`/api/admin/stages/${custom.id}`).expect(204);
+      await editor
+        .put('/api/admin/stages/order')
+        .send({ pipeline: 'listings', ids: ids.filter((x: number) => x !== custom.id) })
+        .expect(200);
+    });
+
+    it('adds, renames, deactivates and reorders dictionary items', async () => {
+      await plain.get('/api/admin/dictionaries').expect(403);
+      const all = await editor
+        .post('/api/admin/dictionaries')
+        .send({ kind: 'district', name: 'Норк' })
+        .expect(201);
+      const nork = all.body.find((d: { name: string }) => d.name === 'Норк');
+      expect(nork).toMatchObject({ kind: 'district', isActive: true });
+      await editor
+        .post('/api/admin/dictionaries')
+        .send({ kind: 'district', name: 'норк' })
+        .expect(409);
+
+      await editor
+        .patch(`/api/admin/dictionaries/${nork.id}`)
+        .send({ name: 'Норк-Мараш 2' })
+        .expect(200);
+      await editor
+        .patch(`/api/admin/dictionaries/${nork.id}`)
+        .send({ isActive: false })
+        .expect(200);
+      await editor.patch(`/api/admin/dictionaries/${nork.id}`).send({}).expect(400);
+      const active = (await plain.get('/api/dictionaries').expect(200)).body.district;
+      expect(active.map((d: { id: number }) => d.id)).not.toContain(nork.id);
+
+      const districts = (await editor.get('/api/admin/dictionaries').expect(200)).body.filter(
+        (d: { kind: string }) => d.kind === 'district',
+      );
+      const ids = districts.map((d: { id: number }) => d.id).reverse();
+      const reordered = await editor
+        .put('/api/admin/dictionaries/order')
+        .send({ kind: 'district', ids })
+        .expect(200);
+      expect(
+        reordered.body
+          .filter((d: { kind: string }) => d.kind === 'district')
+          .map((d: { id: number }) => d.id),
+      ).toEqual(ids);
+    });
+
+    it('keeps parser settings owner-only and validated', async () => {
+      await editor.get('/api/admin/parser/settings').expect(403);
+      const current = (await owner.get('/api/admin/parser/settings').expect(200)).body;
+      expect(current).toMatchObject({ enabled: false, intervalMinutes: 5, ownerOnly: true });
+      await owner
+        .put('/api/admin/parser/settings')
+        .send({ ...current, intervalMinutes: 1 })
+        .expect(400);
+      const saved = await owner
+        .put('/api/admin/parser/settings')
+        .send({ ...current, intervalMinutes: 10, enabled: true })
+        .expect(200);
+      expect(saved.body).toMatchObject({ intervalMinutes: 10, enabled: true });
+      expect((await owner.get('/api/admin/parser/settings').expect(200)).body.intervalMinutes).toBe(
+        10,
+      );
+      expect((await owner.get('/api/admin/parser/runs').expect(200)).body).toEqual([]);
+    });
+
+    it('shows the audit log to the owner with filters', async () => {
+      await editor.get('/api/admin/audit').expect(403);
+      const settings = await owner.get('/api/admin/audit?type=settings.changed').expect(200);
+      expect(settings.body.total).toBe(1);
+      expect(settings.body.rows[0]).toMatchObject({
+        type: 'settings.changed',
+        userName: 'owner',
+        payload: expect.objectContaining({ key: 'parser' }),
+      });
+      const stages = await owner.get('/api/admin/audit?type=stage.changed&pageSize=10').expect(200);
+      expect(stages.body.rows.every((r: { userName: string }) => r.userName === 'editor')).toBe(
+        true,
+      );
+      expect(stages.body.total).toBeGreaterThanOrEqual(5);
+      const future = new Date(Date.now() + 86_400_000).toISOString();
+      const none = await owner
+        .get(`/api/admin/audit?from=${encodeURIComponent(future)}`)
+        .expect(200);
+      expect(none.body).toMatchObject({ rows: [], total: 0 });
+      await owner.get('/api/admin/audit?type=nope').expect(400);
+    });
+  });
+
   it('serves active dictionaries', async () => {
     const res = await owner.get('/api/dictionaries').expect(200);
     expect(res.body.district.map((d: { code: string }) => d.code)).toContain('kentron');

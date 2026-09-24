@@ -16,7 +16,6 @@ import {
   Table,
   Text,
   TextInput,
-  Title,
 } from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
@@ -54,8 +53,7 @@ export function UsersPage() {
 
   return (
     <Stack>
-      <Group justify="space-between">
-        <Title order={2}>Пользователи</Title>
+      <Group justify="flex-end">
         <Button leftSection={<IconPlus size={18} />} onClick={() => setCreating(true)}>
           Добавить
         </Button>

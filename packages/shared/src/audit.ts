@@ -16,5 +16,8 @@ export const AUDIT_EVENTS = [
   'deal.closed',
   'reward.accrued',
   'export.csv',
+  'stage.changed',
+  'dictionary.changed',
+  'settings.changed',
 ] as const;
 export type AuditEventType = (typeof AUDIT_EVENTS)[number];
