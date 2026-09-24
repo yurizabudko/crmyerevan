@@ -546,6 +546,189 @@ describe('CRM API', () => {
     });
   });
 
+  describe('clients funnel', () => {
+    type Agent = ReturnType<typeof request.agent>;
+    let emp: Agent;
+    let prt: Agent;
+    let stage: Record<string, number>;
+    let dict: Record<string, { id: number; code: string }[]>;
+
+    const dictId = (kind: string, code: string) => dict[kind]!.find((d) => d.code === code)!.id;
+    const move = (agent: Agent, id: number, version: number, code: string, extra = {}) =>
+      agent.post(`/api/clients/${id}/stage`).send({ stageId: stage[code], version, ...extra });
+
+    it('prepares users and references', async () => {
+      stage = Object.fromEntries(
+        (await owner.get('/api/clients').expect(200)).body.stages.map(
+          (s: { code: string; id: number }) => [s.code, s.id],
+        ),
+      );
+      dict = (await owner.get('/api/dictionaries').expect(200)).body;
+      for (const [login, role] of [
+        ['cemp', 'employee'],
+        ['cprt', 'partner'],
+      ]) {
+        await owner
+          .post('/api/users')
+          .send({ login, displayName: login, role, temporaryPassword: 'Temp12345' })
+          .expect(201);
+      }
+      [emp, prt] = await Promise.all([signIn('cemp'), signIn('cprt')]);
+    });
+
+    it('creates clients with a unique phone and required source', async () => {
+      await emp
+        .post('/api/clients')
+        .send({ name: 'Без источника', phone: '093 111 222' })
+        .expect(400);
+      const created = await emp
+        .post('/api/clients')
+        .send({ name: 'Анна', phone: '093 111 222', sourceId: dictId('source', 'call') })
+        .expect(201);
+      expect(created.body).toMatchObject({
+        name: 'Анна',
+        stageId: stage.new,
+        responsibleId: expect.any(Number),
+        partnerSourceId: null,
+        isOverdue: false,
+      });
+      const dup = await prt
+        .post('/api/clients')
+        .send({ name: 'Дубль', phone: '+374 93 111222', sourceId: dictId('source', 'ads') })
+        .expect(409);
+      // Партнёр узнаёт о дубле, но не получает ссылку на чужую карточку.
+      expect(dup.body).toMatchObject({ code: 'DUPLICATE_CLIENT' });
+      expect(dup.body.existingId).toBeUndefined();
+      const dupForEmp = await owner
+        .post('/api/clients')
+        .send({ name: 'Дубль', phone: '0037493111222', sourceId: dictId('source', 'ads') })
+        .expect(409);
+      expect(dupForEmp.body.existingId).toBe(created.body.id);
+    });
+
+    it('walks a client through the funnel', async () => {
+      const { body: c } = await emp
+        .post('/api/clients')
+        .send({ name: 'Борис', phone: '094 222 333', sourceId: dictId('source', 'referral') })
+        .expect(201);
+      await move(emp, c.id, 1, 'call').expect(200);
+      const q = await move(emp, c.id, 2, 'qualified', { conversationConfirmed: true }).expect(400);
+      expect(q.body.errors).toEqual(['Заполните в карточке: бюджет, район, тип объекта, сроки']);
+
+      const kentron = dictId('district', 'kentron');
+      const filled = await emp
+        .patch(`/api/clients/${c.id}`)
+        .send({
+          version: 2,
+          budgetMax: 150000,
+          districtIds: [kentron, dictId('district', 'arabkir')],
+          propertyTypeId: dictId('property_type', 'apartment'),
+          timeframe: 'до конца года',
+        })
+        .expect(200);
+      expect(filled.body.comments.map((x: { body: string }) => x.body)).toContain(
+        'Районы: — → Кентрон, Арабкир',
+      );
+      await move(emp, c.id, 3, 'qualified', { conversationConfirmed: true }).expect(200);
+
+      const sel = await move(emp, c.id, 4, 'selection').expect(400);
+      expect(sel.body.errors).toEqual(['Привяжите к клиенту хотя бы одно объявление']);
+      const { body: listing } = await owner
+        .post('/api/listings')
+        .send({ title: 'Для подбора' })
+        .expect(201);
+      await db
+        .table('client_listing_links')
+        .create({ client_id: c.id, listing_id: listing.id, status: 'proposed' });
+      await move(emp, c.id, 4, 'selection').expect(200);
+
+      await move(emp, c.id, 5, 'showings').expect(400);
+      const shown = await move(emp, c.id, 5, 'showings', {
+        showingAt: '2026-10-05T08:00:00.000Z',
+      }).expect(200);
+      expect(shown.body).toMatchObject({ showingsCount: 1, linkedListings: 1 });
+
+      await move(emp, c.id, 6, 'negotiation').expect(400);
+      const neg = await move(emp, c.id, 6, 'negotiation', { agreedPrice: 140000 }).expect(200);
+      expect(neg.body.agreedPrice).toBe(140000);
+
+      const closed = await move(emp, c.id, 7, 'deal_closed', {
+        finalPrice: 138000,
+        commissionFact: 4140,
+      }).expect(200);
+      expect(closed.body).toMatchObject({ finalPrice: 138000, commissionFact: 4140 });
+      await move(emp, c.id, 8, 'selection').expect(400);
+    });
+
+    it('rejects with a reason from the dictionary', async () => {
+      const { body: c } = await emp
+        .post('/api/clients')
+        .send({ name: 'Вера', phone: '095 333 444', sourceId: dictId('source', 'ads') })
+        .expect(201);
+      await move(emp, c.id, 1, 'rejected').expect(400);
+      await move(emp, c.id, 1, 'rejected', {
+        rejectReasonId: dictId('district', 'kentron'),
+      }).expect(400);
+      const rejected = await move(emp, c.id, 1, 'rejected', {
+        rejectReasonId: dictId('reject_reason', 'expensive'),
+      }).expect(200);
+      expect(rejected.body.comments.map((x: { body: string }) => x.body)).toContain(
+        'Причина отказа: Дорого',
+      );
+    });
+
+    it('limits partners to their clients and allowed fields', async () => {
+      const { body: own } = await prt
+        .post('/api/clients')
+        .send({
+          name: 'Клиент партнёра',
+          phone: '096 444 555',
+          sourceId: dictId('source', 'other'),
+        })
+        .expect(201);
+      expect(own.partnerSourceId).toBe(own.responsibleId);
+      expect(own.comments).toEqual([]);
+
+      const board = await prt.get('/api/clients').expect(200);
+      expect(board.body.cards.map((x: { name: string }) => x.name)).toEqual(['Клиент партнёра']);
+
+      await prt.patch(`/api/clients/${own.id}`).send({ version: 1, finalPrice: 1 }).expect(403);
+      await prt
+        .patch(`/api/clients/${own.id}`)
+        .send({ version: 1, agreedPrice: 90000, messenger: '@client' })
+        .expect(200);
+      await move(prt, own.id, 2, 'selection').expect(400);
+    });
+
+    it('flags idle early-stage clients as overdue until there is activity', async () => {
+      const { body: c } = await emp
+        .post('/api/clients')
+        .send({ name: 'Давид', phone: '097 555 666', sourceId: dictId('source', 'call') })
+        .expect(201);
+      await db.table('clients').update(c.id, { last_activity_at: '2026-01-01T00:00:00Z' });
+      const board = await emp.get('/api/clients').expect(200);
+      expect(board.body.cards.find((x: { id: number }) => x.id === c.id).isOverdue).toBe(true);
+
+      await emp.post(`/api/clients/${c.id}/comments`).send({ body: 'Перезвонить' }).expect(201);
+      expect((await emp.get(`/api/clients/${c.id}`).expect(200)).body.isOverdue).toBe(false);
+    });
+
+    it('soft-deletes clients for those with the right', async () => {
+      const { body: c } = await emp
+        .post('/api/clients')
+        .send({ name: 'Удаляемый', phone: '098 666 777', sourceId: dictId('source', 'call') })
+        .expect(201);
+      await emp.delete(`/api/clients/${c.id}`).expect(403);
+      await owner.delete(`/api/clients/${c.id}`).expect(204);
+      await emp.get(`/api/clients/${c.id}`).expect(404);
+      // Телефон удалённого клиента можно использовать снова.
+      await emp
+        .post('/api/clients')
+        .send({ name: 'Новый', phone: '098 666 777', sourceId: dictId('source', 'call') })
+        .expect(201);
+    });
+  });
+
   it('serves active dictionaries', async () => {
     const res = await owner.get('/api/dictionaries').expect(200);
     expect(res.body.district.map((d: { code: string }) => d.code)).toContain('kentron');

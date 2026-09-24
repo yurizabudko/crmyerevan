@@ -1,4 +1,5 @@
 import { Navigate, createBrowserRouter } from 'react-router';
+import { ClientsBoardPage } from './features/clients/ClientsBoardPage';
 import { ListingsBoardPage } from './features/listings/ListingsBoardPage';
 import { UsersPage } from './features/users/UsersPage';
 import { AppLayout } from './layout/AppLayout';
@@ -11,7 +12,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to="/listings" replace /> },
       { path: 'listings', element: <ListingsBoardPage /> },
-      { path: 'clients', element: <SectionPlaceholder title="Воронка клиентов" /> },
+      { path: 'clients', element: <ClientsBoardPage /> },
       { path: 'table', element: <SectionPlaceholder title="Таблица" /> },
       { path: 'dashboard', element: <SectionPlaceholder title="Дашборд" /> },
       { path: 'admin/users', element: <UsersPage /> },

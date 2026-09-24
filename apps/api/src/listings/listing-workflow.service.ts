@@ -20,6 +20,13 @@ import {
 } from '@crm/shared';
 import type { Redis } from 'ioredis';
 import { AuditService } from '../audit/audit.service.js';
+import {
+  assertVersion,
+  formatMoment,
+  historyEntry,
+  sameInstant,
+  sameValue,
+} from '../common/card-utils.js';
 import { withLock } from '../common/redis-lock.js';
 import { NOCODB, REDIS } from '../infra/infra.module.js';
 import { isListingVisible } from './access.js';
@@ -286,11 +293,7 @@ export class ListingWorkflowService {
   }
 
   private fieldEntry(field: string, oldValue: string | null, newValue: string | null) {
-    const label = LISTING_FIELD_LABELS[field] ?? field;
-    return {
-      body: `${label}: ${oldValue ?? '—'} → ${newValue ?? '—'}`,
-      change: { field, oldValue, newValue },
-    };
+    return historyEntry(LISTING_FIELD_LABELS, field, oldValue, newValue);
   }
 
   /** Человекочитаемое значение для истории: названия вместо ID, даты по Еревану. */
@@ -313,38 +316,6 @@ export class ListingWorkflowService {
   }
 }
 
-function assertVersion(row: ListingRow, version: number): void {
-  if ((row.version ?? 1) !== version) {
-    throw new ConflictException({
-      code: 'VERSION_CONFLICT',
-      message: 'Карточку уже изменил другой пользователь — обновите и повторите',
-    });
-  }
-}
-
 function equal(field: PatchField, before: unknown, after: unknown): boolean {
-  if (before === null || before === undefined) return after === null;
-  if (after === null) return false;
-  if (field === 'meetingAt') return sameInstant(String(before), String(after));
-  if (typeof after === 'number') return Number(before) === after;
-  return before === after;
-}
-
-function sameInstant(a: string | null, b: string | null): boolean {
-  if (!a || !b) return a === b;
-  return toDate(a).getTime() === toDate(b).getTime();
-}
-
-/** NocoDB отдаёт «2026-10-01 10:00:00+00:00» — приводим к формату, понятному Date. */
-function toDate(value: string): Date {
-  return new Date(value.replace(' ', 'T'));
-}
-
-function formatMoment(value: string | null): string | null {
-  if (!value) return null;
-  return new Intl.DateTimeFormat('ru-RU', {
-    dateStyle: 'short',
-    timeStyle: 'short',
-    timeZone: 'Asia/Yerevan',
-  }).format(toDate(value));
+  return sameValue(before, after, field === 'meetingAt');
 }

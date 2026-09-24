@@ -18,13 +18,14 @@
   }
 }
 
-.card {
+.item {
   cursor: pointer;
+  border-radius: var(--mantine-radius-md);
   transition: box-shadow 120ms ease;
 }
 
-.card:hover,
-.card:focus-visible {
+.item:hover,
+.item:focus-visible {
   box-shadow: var(--mantine-shadow-sm);
 }
 

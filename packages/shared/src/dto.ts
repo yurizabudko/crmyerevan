@@ -94,6 +94,49 @@ export interface DictionaryItemDto {
 
 export type DictionariesDto = Record<DictionaryKind, DictionaryItemDto[]>;
 
+export interface ClientDto {
+  id: number;
+  name: string;
+  phone: string | null;
+  messenger: string | null;
+  sourceId: number | null;
+  budgetMin: number | null;
+  budgetMax: number | null;
+  currency: string | null;
+  districtIds: number[];
+  propertyTypeId: number | null;
+  roomsMin: number | null;
+  roomsMax: number | null;
+  floorPreference: string | null;
+  timeframe: string | null;
+  notes: string | null;
+  stageId: number | null;
+  responsibleId: number | null;
+  partnerSourceId: number | null;
+  createdById: number | null;
+  agreedPrice: number | null;
+  finalPrice: number | null;
+  commissionFact: number | null;
+  rejectReasonId: number | null;
+  showingsCount: number;
+  nextShowingAt: string | null;
+  lastActivityAt: string | null;
+  /** Этапы 1–3 без активности больше 48 часов (БТ-4.2.1). */
+  isOverdue: boolean;
+  createdAt: string;
+  version: number;
+}
+
+export interface ClientBoardDto {
+  stages: StageDto[];
+  cards: ClientDto[];
+}
+
+export interface ClientDetailsDto extends ClientDto {
+  comments: CommentDto[];
+  linkedListings: number;
+}
+
 /** Краткие данные пользователя для списков выбора и подписей. */
 export interface UserBriefDto {
   id: number;

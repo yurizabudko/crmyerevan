@@ -124,8 +124,13 @@ export const schema = {
     commission_fact: c.decimal(),
     reject_reason_id: c.int(),
     showings_count: c.int(),
+    /** Ближайший назначенный показ (этап «Показы»). */
+    next_showing_at: c.datetime(),
+    currency: c.text(),
+    notes: c.longText(),
     last_activity_at: c.datetime(),
     deleted_at: c.datetime(),
+    deleted_by_id: c.int(),
     version: c.int(),
   },
 

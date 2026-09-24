@@ -1,10 +1,4 @@
-import {
-  can,
-  type CommentDto,
-  type ListingDetailsDto,
-  type StageDto,
-  type UserDto,
-} from '@crm/shared';
+import { can, type ListingDetailsDto, type StageDto, type UserDto } from '@crm/shared';
 import {
   Alert,
   Anchor,
@@ -16,23 +10,14 @@ import {
   Loader,
   Menu,
   Modal,
-  SegmentedControl,
   SimpleGrid,
   Stack,
   Text,
-  Textarea,
-  Timeline,
   Title,
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
-import {
-  IconArrowRight,
-  IconDots,
-  IconPencil,
-  IconPhoneCall,
-  IconTrash,
-} from '@tabler/icons-react';
-import { useState, type ReactNode } from 'react';
+import { IconArrowRight, IconDots, IconPencil, IconTrash } from '@tabler/icons-react';
+import { useState } from 'react';
 import { useMe } from '../../auth/useAuth';
 import { formatDateTime, formatPrice } from '../../lib/format';
 import {
@@ -44,6 +29,7 @@ import {
   useUserDirectory,
 } from './api';
 import { PhotoGallery } from './PhotoGallery';
+import { CommentBox, Field, History } from '../../components/cards/CardParts';
 import { EditListingModal } from './EditListingModal';
 import type { PendingMove } from './StageChangeModal';
 
@@ -64,6 +50,7 @@ export function ListingDrawer({ listingId, onClose, onMove }: Props) {
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const remove = useDeleteListing();
+  const addComment = useAddComment();
   const l = listing.data;
 
   return (
@@ -122,7 +109,13 @@ export function ListingDrawer({ listingId, onClose, onMove }: Props) {
           <Details listing={l} me={me} />
 
           <Divider label="Комментарии и история" labelPosition="left" />
-          <CommentBox listingId={l.id} />
+          <CommentBox
+            pending={addComment.isPending}
+            error={addComment.error?.message}
+            onSubmit={(comment, done) =>
+              addComment.mutate({ id: l.id, comment }, { onSuccess: done })
+            }
+          />
           <History comments={l.comments} />
 
           <Modal
@@ -248,92 +241,5 @@ function Details({ listing: l, me }: { listing: ListingDetailsDto; me: UserDto }
         </Text>
       )}
     </>
-  );
-}
-
-function CommentBox({ listingId }: { listingId: number }) {
-  const add = useAddComment();
-  const [body, setBody] = useState('');
-  const [kind, setKind] = useState<'manual' | 'call'>('manual');
-
-  const submit = () =>
-    add.mutate(
-      { id: listingId, comment: { body, kind } },
-      {
-        onSuccess: () => {
-          setBody('');
-          setKind('manual');
-        },
-      },
-    );
-
-  return (
-    <Stack gap="xs">
-      <Textarea
-        placeholder={kind === 'call' ? 'Итог звонка…' : 'Комментарий…'}
-        autosize
-        minRows={2}
-        value={body}
-        onChange={(e) => setBody(e.currentTarget.value)}
-        error={add.error?.message}
-      />
-      <Group justify="space-between">
-        <SegmentedControl
-          size="xs"
-          value={kind}
-          onChange={(v) => setKind(v as 'manual' | 'call')}
-          data={[
-            { value: 'manual', label: 'Комментарий' },
-            { value: 'call', label: 'Звонок' },
-          ]}
-        />
-        <Button size="xs" onClick={submit} disabled={!body.trim()} loading={add.isPending}>
-          Добавить
-        </Button>
-      </Group>
-    </Stack>
-  );
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <Stack gap={0}>
-      <Text size="xs" c="dimmed">
-        {label}
-      </Text>
-      <Text size="sm">{children ?? '—'}</Text>
-    </Stack>
-  );
-}
-
-function History({ comments }: { comments: CommentDto[] }) {
-  if (comments.length === 0) {
-    return (
-      <Text size="sm" c="dimmed">
-        Записей пока нет
-      </Text>
-    );
-  }
-  return (
-    <Timeline bulletSize={18} lineWidth={2}>
-      {comments.map((c) => (
-        <Timeline.Item
-          key={c.id}
-          color={c.kind === 'system' ? 'gray' : c.kind === 'call' ? 'teal' : 'indigo'}
-          bullet={c.kind === 'call' ? <IconPhoneCall size={11} /> : undefined}
-        >
-          <Text
-            size="sm"
-            style={{ whiteSpace: 'pre-wrap' }}
-            c={c.kind === 'system' ? 'dimmed' : undefined}
-          >
-            {c.body}
-          </Text>
-          <Text size="xs" c="dimmed">
-            {c.authorName ?? 'Система'} · {formatDateTime(c.createdAt)}
-          </Text>
-        </Timeline.Item>
-      ))}
-    </Timeline>
   );
 }

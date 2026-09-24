@@ -1,8 +1,7 @@
-import type { ListingDto } from '@crm/shared';
 import { describe, expect, it } from 'vitest';
 import { moveWithin, orderColumn } from './ordering';
 
-const card = (id: number) => ({ id }) as ListingDto;
+const card = (id: number) => ({ id });
 
 describe('orderColumn', () => {
   it('keeps server order in auto mode', () => {
