@@ -120,3 +120,25 @@ export const AUDIT_EVENT_LABELS: Record<string, string> = {
   'subscription.resumed': 'Подписка: автопродление включено',
   'reward.paid': 'Вознаграждение выплачено',
 };
+
+/** Подтверждение выплаты вознаграждения Владельцем (БТ-8.2.5). */
+export const PayoutInput = z.object({
+  method: z.string().trim().min(2, 'Укажите способ выплаты').max(100),
+  paidAt: z.iso.date('Укажите дату').optional(),
+});
+export type PayoutInput = z.infer<typeof PayoutInput>;
+
+export const RewardsQuery = z.object({
+  status: z.enum(['accrued', 'paid', 'on_hold']).optional(),
+  partnerId: z.coerce.number().int().positive().optional(),
+  from: z.iso.datetime({ offset: true }).optional(),
+  to: z.iso.datetime({ offset: true }).optional(),
+});
+export type RewardsQuery = z.infer<typeof RewardsQuery>;
+
+export const PartnersQuery = z.object({
+  subscription: z.enum(['none', 'trial', 'active', 'grace', 'frozen', 'canceled']).optional(),
+  from: z.iso.datetime({ offset: true }).optional(),
+  to: z.iso.datetime({ offset: true }).optional(),
+});
+export type PartnersQuery = z.infer<typeof PartnersQuery>;

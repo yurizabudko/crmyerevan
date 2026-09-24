@@ -1,8 +1,10 @@
 import { AppShell, Burger, Button, Group, NavLink, Text, Title } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { IconLogout } from '@tabler/icons-react';
-import { NavLink as RouterNavLink, Outlet } from 'react-router';
+import { ACCESS_STATUSES } from '@crm/shared';
+import { Navigate, NavLink as RouterNavLink, Outlet, useLocation } from 'react-router';
 import { useLogout, useMe } from '../auth/useAuth';
+import { useSubscription } from '../features/billing/api';
 import { SECTIONS } from '../sections';
 
 const ROLE_LABEL = { owner: 'Владелец', employee: 'Сотрудник', partner: 'Партнёр' } as const;
@@ -11,7 +13,16 @@ export function AppLayout() {
   const [opened, { toggle, close }] = useDisclosure();
   const { data: user } = useMe();
   const logout = useLogout();
+  const { pathname } = useLocation();
+  const isPartner = user?.role === 'partner';
+  const subscription = useSubscription(isPartner);
   if (!user) return null;
+  if (isPartner && subscription.isPending) return null;
+
+  // Без активной подписки партнёру доступен только личный кабинет (8.1).
+  const locked = isPartner && !ACCESS_STATUSES.includes(subscription.data?.status ?? 'none');
+  if (locked && pathname !== '/cabinet') return <Navigate to="/cabinet" replace />;
+  const sections = SECTIONS.filter((s) => s.visible(user) && (!locked || s.path === '/cabinet'));
 
   return (
     <AppShell
@@ -33,7 +44,7 @@ export function AppLayout() {
 
       <AppShell.Navbar p="xs">
         <AppShell.Section grow>
-          {SECTIONS.filter((s) => s.visible(user)).map(({ path, title, icon: Icon }) => (
+          {sections.map(({ path, title, icon: Icon }) => (
             <NavLink
               key={path}
               component={RouterNavLink}

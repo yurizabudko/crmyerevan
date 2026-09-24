@@ -3,6 +3,8 @@ import {
   IconAddressBook,
   IconBuildingEstate,
   IconChartBar,
+  IconCreditCard,
+  IconUsersGroup,
   IconSettings,
   IconTable,
   type Icon,
@@ -24,6 +26,18 @@ export const SECTIONS: Section[] = [
   // Партнёр видит в таблице только свои записи и не выгружает CSV (БТ-5.8, 5.9).
   { path: '/table', title: 'Таблица', icon: IconTable, visible: always },
   { path: '/dashboard', title: 'Дашборд', icon: IconChartBar, visible: always },
+  {
+    path: '/cabinet',
+    title: 'Подписка',
+    icon: IconCreditCard,
+    visible: (u) => u.role === 'partner',
+  },
+  {
+    path: '/partners',
+    title: 'Партнёры',
+    icon: IconUsersGroup,
+    visible: (u) => can.confirmPayout(u),
+  },
   {
     path: '/admin',
     title: 'Администрирование',

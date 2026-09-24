@@ -27,14 +27,22 @@ const queryClient = new QueryClient({
   },
 });
 
-// Сессия истекла или пользователя заблокировали — возвращаем на экран входа.
+function handleApiError(error: unknown) {
+  if (!(error instanceof ApiError)) return;
+  // Сессия истекла или пользователя заблокировали — возвращаем на экран входа.
+  if (error.status === 401) queryClient.setQueryData(ME_KEY, null);
+  if (error.code === 'PASSWORD_CHANGE_REQUIRED')
+    void queryClient.invalidateQueries({ queryKey: ME_KEY });
+  // Подписка партнёра закончилась — AppLayout переведёт его в личный кабинет.
+  if (error.code === 'SUBSCRIPTION_REQUIRED')
+    void queryClient.invalidateQueries({ queryKey: ['subscription'] });
+}
+
 queryClient.getQueryCache().subscribe((event) => {
-  const error = event.query.state.error;
-  if (event.type === 'updated' && error instanceof ApiError) {
-    if (error.status === 401) queryClient.setQueryData(ME_KEY, null);
-    if (error.code === 'PASSWORD_CHANGE_REQUIRED')
-      void queryClient.invalidateQueries({ queryKey: ME_KEY });
-  }
+  if (event.type === 'updated') handleApiError(event.query.state.error);
+});
+queryClient.getMutationCache().subscribe((event) => {
+  if (event.type === 'updated') handleApiError(event.mutation?.state.error);
 });
 
 createRoot(document.getElementById('root')!).render(

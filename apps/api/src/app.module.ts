@@ -9,6 +9,7 @@ import { DictionariesController } from './dictionaries/dictionaries.controller.j
 import { HealthController } from './health/health.controller.js';
 import { InfraModule } from './infra/infra.module.js';
 import { ListingsModule } from './listings/listings.module.js';
+import { PartnersModule } from './partners/partners.module.js';
 import { PrefsController } from './prefs/prefs.controller.js';
 import { StorageModule } from './storage/storage.module.js';
 import { TableModule } from './table/table.module.js';
@@ -27,6 +28,7 @@ import { UsersModule } from './users/users.module.js';
     TableModule,
     DashboardModule,
     AdminModule,
+    PartnersModule,
   ],
   controllers: [HealthController, DictionariesController, PrefsController],
 })

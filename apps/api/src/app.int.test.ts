@@ -33,15 +33,17 @@ const redisUrl = 'redis://localhost:6379/15';
 let app: INestApplication;
 
 /** Двойник Telegram: запоминает отправленное, отдаёт заранее заготовленные апдейты. */
+const sent: { chatId: string; text: string }[] = [];
+const updates: TelegramUpdate[] = [];
 const telegram = {
   enabled: true,
-  sent: [] as { chatId: string; text: string }[],
-  updates: [] as TelegramUpdate[],
+  sent,
+  updates,
   async sendMessage(chatId: string, text: string) {
-    this.sent.push({ chatId, text });
+    sent.push({ chatId, text });
   },
   async getUpdates(offset: number) {
-    return this.updates.filter((u) => u.update_id >= offset);
+    return updates.filter((u) => u.update_id >= offset);
   },
 } satisfies TelegramApi & Record<string, unknown>;
 let db: NocoDb;
@@ -1585,6 +1587,86 @@ describe('CRM API', () => {
         .table('notifications_outbox')
         .findOne(w.and(w.eq('status', 'skipped'), w.like('text', 'Бесплатный период начат%')));
       expect(skipped?.last_error).toBe('Telegram не привязан');
+    });
+  });
+
+  describe('partner program', () => {
+    it('shows partners their deals without the agency commission', async () => {
+      const dpa = await logIn('dpa');
+      const deals = (await dpa.get('/api/me/deals').expect(200)).body;
+      expect(deals).toEqual([
+        expect.objectContaining({
+          finalPrice: 180000,
+          reward: 540,
+          rewardStatus: 'accrued',
+          listingTitle: 'Сделка: объект',
+          clientName: 'Сделка',
+        }),
+      ]);
+      expect(JSON.stringify(deals)).not.toMatch(/commission|5400/);
+      await dpa.get('/api/partners').expect(403);
+      await dpa.post('/api/partners/rewards/1/pay').send({ method: 'наличные' }).expect(403);
+    });
+
+    it('gives the owner partner stats, upcoming charges and problems', async () => {
+      const overview = (await owner.get('/api/partners').expect(200)).body;
+      const row = (login: string) =>
+        overview.partners.find((p: { name: string }) => p.name === login);
+      // Планировщик в тестах подписки уже продлил и триал dpa — поэтому проверяем только сделки.
+      expect(row('dpa')).toMatchObject({ dealsClosed: 1, accrued: 540, paid: 0 });
+      expect(row('bill1').ltv).toBeGreaterThanOrEqual(1000);
+      expect(row('bill2').subscription).toBe('active');
+      expect(row('bill2').ltv).toBeGreaterThanOrEqual(1000);
+      expect(overview.upcoming).toEqual([]);
+      const onlyActive = (await owner.get('/api/partners?subscription=active').expect(200)).body;
+      expect(
+        onlyActive.partners.every((p: { subscription: string }) => p.subscription === 'active'),
+      ).toBe(true);
+    });
+
+    it('confirms payouts once and exports the payout registry', async () => {
+      const rewards = (await owner.get('/api/partners/rewards?status=accrued').expect(200)).body;
+      const target = rewards.find((r: { partnerName: string }) => r.partnerName === 'dpa');
+      expect(target).toMatchObject({ amount: 540, dealId: expect.any(Number) });
+
+      await owner.post(`/api/partners/rewards/${target.id}/pay`).send({ method: 'x' }).expect(400);
+      const paid = await owner
+        .post(`/api/partners/rewards/${target.id}/pay`)
+        .send({ method: 'Банковский перевод', paidAt: '2026-09-30' })
+        .expect(201);
+      expect(paid.body).toMatchObject({ status: 'paid', paidMethod: 'Банковский перевод' });
+      await owner
+        .post(`/api/partners/rewards/${target.id}/pay`)
+        .send({ method: 'Банковский перевод' })
+        .expect(400);
+
+      const dpa = await logIn('dpa');
+      const deals = (await dpa.get('/api/me/deals').expect(200)).body;
+      expect(deals[0]).toMatchObject({ rewardStatus: 'paid' });
+      const notice = await db
+        .table('notifications_outbox')
+        .findOne(w.eq('dedupe_key', `reward-paid:${target.id}`));
+      expect(notice?.text).toMatch(/Выплачено вознаграждение 540/);
+
+      const csv = await owner
+        .get('/api/partners/rewards.csv?status=paid')
+        .buffer(true)
+        .parse((r, cb) => {
+          let data = '';
+          r.setEncoding('utf8');
+          r.on('data', (chunk: string) => (data += chunk));
+          r.on('end', () => cb(null, data));
+        })
+        .expect(200);
+      const lines = (csv.body as string).replace('\uFEFF', '').trim().split('\r\n');
+      expect(lines[0]).toBe(
+        'Партнёр;Сделка;Дата сделки;Объект;Клиент;Основание;Сумма;Валюта;Статус;Дата выплаты;Способ',
+      );
+      expect(lines).toContainEqual(
+        expect.stringMatching(
+          /^dpa;\d+;\d{4}-\d{2}-\d{2};Сделка: объект;Сделка;клиент;540;USD;выплачено;2026-09-30;Банковский перевод$/,
+        ),
+      );
     });
   });
 

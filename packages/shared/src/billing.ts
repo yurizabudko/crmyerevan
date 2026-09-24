@@ -69,3 +69,52 @@ export interface PartnerDealDto {
   rewardStatus: 'accrued' | 'paid' | 'on_hold';
   paidAt: string | null;
 }
+
+/** Строка статистики по партнёрам для Владельца (8.5). */
+export interface PartnerStatsRow {
+  partnerId: number;
+  name: string;
+  userStatus: string;
+  subscription: SubscriptionStatus;
+  nextChargeAt: string | null;
+  cardsCreated: number;
+  dealsClosed: number;
+  /** Конверсия партнёра: доля созданных карточек, дошедших до сделки. */
+  conversion: number | null;
+  accrued: number;
+  paid: number;
+  onHold: number;
+  /** LTV — сумма успешных оплат подписки за всё время (Д-13). */
+  ltv: number;
+}
+
+export interface PartnerOverviewDto {
+  partners: PartnerStatsRow[];
+  /** Плановые списания в ближайшие 3 дня. */
+  upcoming: { partnerId: number; name: string; at: string; amount: number }[];
+  /** Проблемные платежи: grace-период и последние неудачные списания. */
+  problems: {
+    partnerId: number;
+    name: string;
+    status: SubscriptionStatus;
+    at: string | null;
+    error: string | null;
+    graceUntil: string | null;
+  }[];
+}
+
+export interface RewardDto {
+  id: number;
+  partnerId: number;
+  partnerName: string;
+  dealId: number | null;
+  closedAt: string | null;
+  listingTitle: string | null;
+  clientName: string | null;
+  basis: string | null;
+  amount: number;
+  currency: string | null;
+  status: 'accrued' | 'paid' | 'on_hold';
+  paidAt: string | null;
+  paidMethod: string | null;
+}
