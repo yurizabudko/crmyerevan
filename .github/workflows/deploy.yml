@@ -1,0 +1,56 @@
+name: Deploy
+
+# Выкладка на VPS по SSH. Включается переменной репозитория DEPLOY_ENABLED=true
+# и секретами окружения production (см. docs/DEPLOY.md). Ключи в код не попадают.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Коммит или ветка для выкладки
+        default: main
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: >-
+      vars.DEPLOY_ENABLED == 'true' &&
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    steps:
+      - name: Prepare SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Отпечаток сервера закреплён: подмена хоста остановит выкладку.
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Deploy
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER }}
+          PORT: ${{ secrets.DEPLOY_PORT }}
+          DIR: ${{ secrets.DEPLOY_PATH }}
+          REF: ${{ github.event.workflow_run.head_sha || inputs.ref }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "${PORT:-22}" -o BatchMode=yes "$USER@$HOST" \
+            "cd '${DIR:-/opt/crm}' && ./deploy/deploy.sh '$REF'"
+
+      - name: Clean up
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

@@ -6,6 +6,7 @@ import {
   type OnModuleInit,
 } from '@nestjs/common';
 import type { Redis } from 'ioredis';
+import { runEvery } from '../common/background.js';
 import { REDIS } from '../infra/infra.module.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { SubscriptionService } from './subscription.service.js';
@@ -30,8 +31,7 @@ export class BillingScheduler implements OnModuleInit, OnApplicationShutdown {
 
   onModuleInit(): void {
     if (process.env.NODE_ENV === 'test') return;
-    this.timer = setInterval(() => void this.run(), EVERY_MS);
-    this.timer.unref();
+    this.timer = runEvery(EVERY_MS, this.logger, 'планировщик', () => this.run());
   }
 
   onApplicationShutdown(): void {

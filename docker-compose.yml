@@ -1,7 +1,15 @@
 name: crmyerevan
 
+# Логи контейнеров с ротацией, чтобы не заполнить диск сервера.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '5'
+
 services:
   postgres:
+    logging: *logging
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -17,6 +25,7 @@ services:
       retries: 20
 
   redis:
+    logging: *logging
     image: redis:7-alpine
     restart: unless-stopped
     command: ['redis-server', '--appendonly', 'yes']
@@ -31,6 +40,7 @@ services:
       retries: 20
 
   nocodb:
+    logging: *logging
     image: nocodb/nocodb:2026.09.0
     restart: unless-stopped
     depends_on:
@@ -57,6 +67,7 @@ services:
   # --- Приложение: `docker compose --profile app up -d --build` ---
 
   migrate:
+    logging: *logging
     profiles: ['app']
     build: { context: ., target: migrate }
     depends_on:
@@ -70,6 +81,7 @@ services:
       NC_ADMIN_PASSWORD: ${NC_ADMIN_PASSWORD}
 
   api:
+    logging: *logging
     profiles: ['app']
     build: { context: ., target: api }
     restart: unless-stopped
@@ -86,6 +98,9 @@ services:
       SESSION_SECRET: ${SESSION_SECRET}
       API_PORT: 3000
       FILES_DIR: /data/files
+      NODE_ENV: production
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
     volumes:
       # Фото объявлений. Том нужно включать в бэкап вместе с Postgres.
       - files:/data/files
@@ -96,6 +111,7 @@ services:
       retries: 10
 
   web:
+    logging: *logging
     profiles: ['app']
     build: { context: ., target: web }
     restart: unless-stopped

@@ -10,6 +10,7 @@ import { PARTNER_REWARD_RATE } from '@crm/shared';
 import type { Redis } from 'ioredis';
 import { AuditService } from '../audit/audit.service.js';
 import { SubscriptionService } from '../billing/subscription.service.js';
+import { runEvery } from '../common/background.js';
 import { withLock } from '../common/redis-lock.js';
 import { NOCODB, REDIS } from '../infra/infra.module.js';
 import { CommentsService } from '../listings/comments.service.js';
@@ -54,8 +55,7 @@ export class DealClosingService implements OnModuleInit, OnApplicationShutdown {
 
   onModuleInit(): void {
     if (process.env.NODE_ENV === 'test') return;
-    this.timer = setInterval(() => void this.reconcile(), RECONCILE_EVERY_MS);
-    this.timer.unref();
+    this.timer = runEvery(RECONCILE_EVERY_MS, this.logger, 'сверка сделок', () => this.reconcile());
   }
 
   onApplicationShutdown(): void {

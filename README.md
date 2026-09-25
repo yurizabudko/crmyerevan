@@ -11,7 +11,8 @@
 | `apps/web`        | SPA на React + Mantine (mobile-first)                              |
 | `packages/shared` | Общие типы и константы: роли, этапы воронок, справочники, телефоны |
 | `packages/nocodb` | Клиент NocoDB API, схема данных, миграции и сиды                   |
-| `deploy/`         | Конфигурация Caddy                                                 |
+| `apps/e2e`        | Сквозные тесты (Playwright) против настоящих API и NocoDB          |
+| `deploy/`         | Caddy, скрипты выкладки, бэкапа и восстановления                   |
 
 Все бизнес-данные хранятся в NocoDB (НФТ-1). Приложение работает с ними только через
 REST API NocoDB; интерфейс NocoDB доступен только техадмину (порт проброшен на `127.0.0.1`).
@@ -37,6 +38,7 @@ pnpm --filter @crm/web dev   # http://localhost:5173
 ```bash
 pnpm lint && pnpm typecheck && pnpm test
 pnpm test:integration   # нужен запущенный NocoDB (pnpm infra:up)
+pnpm test:e2e           # сквозные тесты; поднимает API и сборку веба сам (нужны pnpm build и токен в .env)
 ```
 
 ## Автоимпорт объявлений
@@ -59,3 +61,8 @@ docker compose --profile app up -d --build
 
 Сервис `migrate` выполняет миграции перед стартом `api`. Caddy (`web`) раздаёт SPA и
 проксирует `/api` на API; при `SITE_ADDRESS=домен` сам выпускает TLS-сертификат.
+
+## Продакшен
+
+Установка на VPS, резервные копии, автоматическая выкладка из GitHub Actions и мониторинг —
+в [docs/DEPLOY.md](docs/DEPLOY.md).
