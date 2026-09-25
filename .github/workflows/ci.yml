@@ -46,6 +46,36 @@ jobs:
       - if: failure()
         run: docker compose logs nocodb | tail -n 200
 
+  e2e:
+    name: E2E (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: cp .env.example .env
+      - run: docker compose up -d --wait postgres redis nocodb
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Migrate and store the NocoDB token for the API
+        run: |
+          pnpm migrate | tee migrate.log
+          token=$(sed -n 's/^NOCODB_API_TOKEN=//p' migrate.log)
+          sed -i "s/^NOCODB_API_TOKEN=.*/NOCODB_API_TOKEN=$token/" .env
+      - run: pnpm --filter @crm/e2e exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            apps/e2e/playwright-report
+            apps/e2e/test-results
+          retention-days: 7
+
   docker:
     name: Docker images
     runs-on: ubuntu-latest

@@ -34,8 +34,10 @@ export function useLogout() {
   return useMutation({
     mutationFn: () => api<void>('/auth/logout', { method: 'POST' }),
     onSettled: () => {
-      qc.clear();
+      // Сначала гасим сессию: qc.clear() отвязал бы смонтированные подписки и экран входа
+      // не появился бы. Данные прошлого пользователя затем удаляются из кэша.
       qc.setQueryData(ME_KEY, null);
+      qc.removeQueries({ predicate: (q) => q.queryKey[0] !== ME_KEY[0] });
     },
   });
 }

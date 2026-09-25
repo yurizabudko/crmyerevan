@@ -9,6 +9,7 @@ FROM base AS build
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
+COPY apps/e2e/package.json apps/e2e/
 COPY packages/shared/package.json packages/shared/
 COPY packages/nocodb/package.json packages/nocodb/
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile

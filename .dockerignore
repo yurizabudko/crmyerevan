@@ -4,3 +4,4 @@
 **/*.tsbuildinfo
 .git
 .env
+apps/e2e/.auth

@@ -1,7 +1,8 @@
-import { AppShell, Burger, Button, Group, NavLink, Text, Title } from '@mantine/core';
+import { AppShell, Burger, Button, Group, Loader, NavLink, Text, Title } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { IconLogout } from '@tabler/icons-react';
 import { ACCESS_STATUSES } from '@crm/shared';
+import { Suspense } from 'react';
 import { Navigate, NavLink as RouterNavLink, Outlet, useLocation } from 'react-router';
 import { useLogout, useMe } from '../auth/useAuth';
 import { useSubscription } from '../features/billing/api';
@@ -71,7 +72,9 @@ export function AppLayout() {
       </AppShell.Navbar>
 
       <AppShell.Main>
-        <Outlet />
+        <Suspense fallback={<Loader m="md" />}>
+          <Outlet />
+        </Suspense>
       </AppShell.Main>
     </AppShell>
   );

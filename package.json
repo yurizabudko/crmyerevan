@@ -16,7 +16,8 @@
     "test:integration": "vitest run --project integration",
     "migrate": "pnpm --filter @crm/nocodb migrate",
     "infra:up": "docker compose up -d postgres redis nocodb",
-    "infra:down": "docker compose down"
+    "infra:down": "docker compose down",
+    "test:e2e": "pnpm --filter @crm/e2e test"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

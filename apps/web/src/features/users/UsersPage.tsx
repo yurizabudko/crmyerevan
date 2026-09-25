@@ -62,7 +62,7 @@ export function UsersPage() {
       {users.isPending && <Loader />}
       {users.error && <Alert color="red">{users.error.message}</Alert>}
       {users.data && (
-        <Table.ScrollContainer minWidth={640}>
+        <Table.ScrollContainer minWidth={720}>
           <Table striped highlightOnHover verticalSpacing="xs">
             <Table.Thead>
               <Table.Tr>
