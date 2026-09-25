@@ -15,6 +15,8 @@ const EnvSchema = z.object({
   /** Токен Telegram-бота от @BotFather; без него уведомления копятся в очереди. */
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_BOT_USERNAME: z.string().optional(),
+  /** Сколько секунд дашборд отдаётся из кэша (0 — считать каждый раз). */
+  DASHBOARD_CACHE_SECONDS: z.coerce.number().int().min(0).default(30),
 });
 
 export type AppConfig = z.infer<typeof EnvSchema>;

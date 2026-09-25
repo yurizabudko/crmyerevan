@@ -113,6 +113,7 @@ beforeAll(async () => {
     NOCODB_BASE_TITLE: baseTitle,
     REDIS_URL: redisUrl,
     SESSION_SECRET: 'test-secret-test-secret',
+    DASHBOARD_CACHE_SECONDS: '0',
     FILES_DIR: await mkdtemp(join(tmpdir(), 'crm-api-files-')),
   });
 

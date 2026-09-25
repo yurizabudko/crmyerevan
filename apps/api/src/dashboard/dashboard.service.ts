@@ -10,8 +10,11 @@ import {
   type OverdueClient,
   type TeamRow,
 } from '@crm/shared';
+import type { Redis } from 'ioredis';
+import { cached } from '../common/cache.js';
 import { toDate } from '../common/card-utils.js';
-import { NOCODB } from '../infra/infra.module.js';
+import { APP_CONFIG, type AppConfig } from '../config.js';
+import { NOCODB, REDIS } from '../infra/infra.module.js';
 import { StagesService } from '../listings/stages.service.js';
 import { conversions, countByStage, inScope, sumByCurrency, type Scope } from './metrics.js';
 
@@ -38,10 +41,24 @@ export class DashboardService {
   constructor(
     @Inject(NOCODB) private readonly db: NocoDb,
     @Inject(StagesService) private readonly stages: StagesService,
+    @Inject(REDIS) private readonly redis: Redis,
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
 
-  async get(actor: Actor, q: DashboardQuery): Promise<DashboardDto> {
+  /**
+   * Показатели считаются по всей базе, поэтому ответ кэшируется на полминуты: открытие
+   * дашборда несколькими людьми сразу не нагружает NocoDB (цифры обновятся с задержкой).
+   */
+  get(actor: Actor, q: DashboardQuery): Promise<DashboardDto> {
     const scope = this.resolveScope(actor, q.scope);
+    // Ответ зависит и от того, кто смотрит (партнёру — его вознаграждения), и от среза.
+    const key = `cache:dashboard:${actor.id}:${q.scope}:${q.from}:${q.to}`;
+    return cached(this.redis, key, this.config.DASHBOARD_CACHE_SECONDS, () =>
+      this.compute(actor, scope, q),
+    );
+  }
+
+  private async compute(actor: Actor, scope: Scope, q: DashboardQuery): Promise<DashboardDto> {
     const from = new Date(q.from);
     const to = new Date(q.to);
     const [listingStages, clientStages, period, listings, clients, transitions, users] =
@@ -156,8 +173,13 @@ export class DashboardService {
   }
 
   /** Срез по сотрудникам (6.2): те же показатели по каждому пользователю. */
-  async team(actor: Actor, q: DashboardQuery): Promise<TeamRow[]> {
+  team(actor: Actor, q: DashboardQuery): Promise<TeamRow[]> {
     if (!can.viewTeamDashboard(actor)) throw new ForbiddenException('Недостаточно прав');
+    const key = `cache:dashboard-team:${q.from}:${q.to}`;
+    return cached(this.redis, key, this.config.DASHBOARD_CACHE_SECONDS, () => this.computeTeam(q));
+  }
+
+  private async computeTeam(q: DashboardQuery): Promise<TeamRow[]> {
     const from = new Date(q.from);
     const to = new Date(q.to);
     const [period, users, clients, clientStages] = await Promise.all([
